@@ -176,6 +176,7 @@ export function renderDashboard(): string {
     <h1>Veto<span>OS</span></h1>
     <span id="statusDot"></span>
     <span class="tag" id="statusText">OPERATIONAL</span>
+    <span class="badge" id="fresh" style="color:var(--green);border-color:var(--green)">LIVE · 0s</span>
     <span class="badge mono" id="policy">policy …</span>
     <span class="badge" id="nets">…</span>
     <span class="badge mono" id="clock"></span>
@@ -308,7 +309,13 @@ export function renderDashboard(): string {
 <script>
 var RULES = ["freeze","market_data","allowed_market","notional","leverage","daily_loss","cooldown","same_side_adds","rate_limit","book_depth","margin"];
 var RULE_LABEL = {freeze:"global freeze",market_data:"real market data",allowed_market:"allowed market",notional:"notional cap",leverage:"leverage cap",daily_loss:"daily-loss breaker",cooldown:"post-deny cool-down",same_side_adds:"FOMO same-side adds",rate_limit:"order frequency",book_depth:"book capacity",margin:"margin check"};
-var state = { lastKey: null, busy: false, tradeMarket: "BTC" };
+var state = { lastKey: null, busy: false, tradeMarket: "BTC", lastOk: 0 };
+setInterval(function(){
+  var el = $("fresh"); if (!el) return;
+  var age = state.lastOk ? Math.round((Date.now() - state.lastOk) / 1000) : 99;
+  if (age <= 8) { el.textContent = "LIVE · " + age + "s"; el.style.color = "var(--green)"; el.style.borderColor = "var(--green)"; }
+  else { el.textContent = "STALE · " + age + "s"; el.style.color = "var(--red)"; el.style.borderColor = "var(--red)"; }
+}, 1000);
 var $ = function(id){ return document.getElementById(id); };
 var fmt = function(n,d){ return Number(n).toLocaleString(undefined,{maximumFractionDigits:(d===undefined?2:d)}); };
 function gaugeColor(pct){ return pct>=0.9?"var(--red)":(pct>=0.7?"var(--amber)":"var(--green)"); }
@@ -454,6 +461,7 @@ function refresh() {
   ]).then(function(all){
     var status = all[0], account = all[1], feed = all[2], market = all[3], risk = all[4],
         execution = all[5], stats = all[6], cf = all[7];
+    state.lastOk = Date.now();
     state.tradeMarket = status.tradeMarket || "BTC";
     $("policy").textContent = "policy " + String(status.policyHash||"").slice(0,12) + "…";
     $("gatehash").textContent = "sha256 " + String(status.policyHash||"").slice(0,16) + "…";
