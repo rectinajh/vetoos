@@ -481,9 +481,18 @@ export class RiskBroker {
    * demo's tamper act and by `pnpm broker status --reconcile`.
    */
   async reconcileNow(market: string): Promise<ReconcileResult> {
-    const baseline = this.state.baseline ?? { market, size: 0, ts: 0 };
-    const fills = this.ledger.since(baseline.ts);
-    return this.reconcileWindow(market, baseline.size, fills);
+    let baseline = this.state.baseline;
+    if (baseline && baseline.market !== market) {
+      // A baseline for another market says nothing about this one; re-anchor
+      // rather than compare apples to oranges.
+      await this.setBaseline(market);
+      baseline = this.state.baseline;
+    }
+    const anchor = baseline ?? { market, size: 0, ts: 0 };
+    // Only this market's fills may explain this market's position change —
+    // a fill on xyz:XYZ100 must never be netted against the BTC position.
+    const fills = this.ledger.since(anchor.ts).filter((f) => f.market === market);
+    return this.reconcileWindow(market, anchor.size, fills);
   }
 
   async setBaseline(market: string): Promise<void> {

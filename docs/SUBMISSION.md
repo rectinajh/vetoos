@@ -68,7 +68,7 @@ code was reused.
 
 | Criterion | Our answer | Where it shows |
 |---|---|---|
-| Functionality | Working broker as a SERVICE: HTTP API, idempotent + concurrency-safe submissions (venue cloid), allow→real fill→reconcile, deny paths, freeze, background session reconcile, hash-chained audit; 113 tests green incl. route-level tests | demo video, repo, [EVIDENCE.md](EVIDENCE.md) |
+| Functionality | Working broker as a SERVICE: HTTP API, idempotent + concurrency-safe submissions (venue cloid), allow→real fill→reconcile, deny paths, freeze, background session reconcile, hash-chained audit; 116 tests green incl. route-level tests | demo video, repo, [EVIDENCE.md](EVIDENCE.md) |
 | Potential impact | Every bot/AI trading on HL needs a trustworthy kill switch; HIP-3 multiplies the venues that need it; policy templates make it usable day one | pitch video, GTM |
 | Novelty | Power structure is the product: proposal/veto separation + fill-truth layer + anti-FOMO guards; reference AI proposer shows both ends of the paradigm; AI radar is advisory only | pitch video |
 | UX | Risk-terminal console: live gate animation per rule, risk radar, counterfactual "loss blocked", freeze takeover; plain-language bilingual deny reasons; human-only unfreeze | console screenshot, demo video |

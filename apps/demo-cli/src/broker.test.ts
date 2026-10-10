@@ -216,4 +216,28 @@ describe("RiskBroker — write path safety (P1-9 / P1-10)", () => {
     expect(retry.error).toMatch(/simulated 503/);
     expect(stats().orderCalls).toBe(0);
   });
+
+  it("session reconcile only nets fills of the SAME market (regression: xyz fill vs BTC position)", async () => {
+    dir = mkdtempSync(join(tmpdir(), "vetoos-broker-"));
+    const { adapter } = makeStubAdapter();
+    const broker = new RiskBroker(demoPolicy, adapter, new AuditLog(dir, demoPolicy.contentHash), dir);
+    await broker.setBaseline("BTC"); // venue BTC position = 0
+    const intent = makeIntent({ source: "test", market: "BTC", side: "buy", size: "1", order_type: "market" });
+    const r = await broker.submitIntent(intent); // BTC +1 on the venue, +1 in the ledger
+    expect(r.decision?.code).toBe("ALLOW");
+    // A fill on another market lands in the same ledger file.
+    broker.ledger.append({
+      intentId: "other-market",
+      market: "xyz:XYZ100",
+      side: "sell",
+      size: 0.4,
+      avgPx: 30600,
+      oid: 1,
+      ts: Date.now(),
+      szDecimals: 4,
+    });
+    const session = await broker.reconcileNow("BTC");
+    expect(session.ok).toBe(true);
+    expect(broker.status()["frozen"]).toBe(false);
+  });
 });

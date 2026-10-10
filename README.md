@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/rectinajh/vetoos/actions/workflows/ci.yml/badge.svg)](https://github.com/rectinajh/vetoos/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![tests](https://img.shields.io/badge/tests-115%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-116%20passing-brightgreen)
 
 **The AI-era risk-control OS for Hyperliquid HIP-3.**
 *Don't trust the agent. Verify the fill. Enforce the rules. Outlast FOMO.*
@@ -68,7 +68,7 @@ flowchart LR
 
 ```bash
 pnpm install
-pnpm test                 # 115 unit tests
+pnpm test                 # 116 unit tests
 pnpm demo:offline         # the four acts on a canned, clearly-labelled fixture venue
 pnpm brokerd:offline      # the console on the fixture venue → http://127.0.0.1:4399/
 ```
