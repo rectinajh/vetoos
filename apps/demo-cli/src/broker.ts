@@ -205,12 +205,22 @@ export class RiskBroker {
       ...(intent.limit_px !== undefined ? { limitPx: intent.limit_px } : {}),
       reduceOnly: intent.reduce_only,
     });
-    this.pushHistory({ ts: Date.now(), market: intent.market, side: intent.side, kind: "fill" });
-    this.audit.recordAndSay(
-      "order_placed",
-      { intent_id: intent.id, ...placed },
-      `[fill] 测试网成交 / testnet fill: ${placed.filledSize} @ ${placed.avgPx} (oid ${placed.oid})`,
-    );
+    if (placed.filledSize > 0) {
+      // Only REAL fills count — a resting/unfilled order must never feed
+      // the FOMO counter or the ledger.
+      this.pushHistory({ ts: Date.now(), market: intent.market, side: intent.side, kind: "fill" });
+      this.audit.recordAndSay(
+        "order_placed",
+        { intent_id: intent.id, ...placed },
+        `[fill] 测试网成交 / testnet fill: ${placed.filledSize} @ ${placed.avgPx} (oid ${placed.oid})`,
+      );
+    } else {
+      this.audit.recordAndSay(
+        "order_placed",
+        { intent_id: intent.id, ...placed },
+        `[order] 未成交 / allowed but not filled (status ${placed.status}, oid ${placed.oid})`,
+      );
+    }
 
     if (placed.filledSize > 0) {
       const fill: FillRecord = {

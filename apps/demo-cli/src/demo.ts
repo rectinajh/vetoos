@@ -8,10 +8,10 @@
  *   Act 4  ledger tampered → reconciliation freezes the broker → human-only reset
  */
 
-import { roundSize, type HlAdapter } from "@vetoos/adapter-hl";
-import { makeIntent } from "@vetoos/intent";
+import { aggressiveLimitPx, roundSize, type HlAdapter } from "@vetoos/adapter-hl";
+import { makeIntent, type IntentInput } from "@vetoos/intent";
 import type { LoadedPolicy } from "@vetoos/risk";
-import type { RiskBroker } from "./broker.js";
+import type { RiskBroker, SubmitResult } from "./broker.js";
 
 export interface DemoOptions {
   step?: number;
@@ -88,12 +88,35 @@ export async function runDemo(
   }
 }
 
+/**
+ * Submit and insist on a REAL fill. Testnet books can be thin, so one retry
+ * crosses a wider band. A deny is returned as-is for the caller to judge.
+ */
+async function submitExpectFill(
+  broker: RiskBroker,
+  adapter: HlAdapter,
+  fields: Parameters<typeof makeIntent>[0],
+): Promise<SubmitResult> {
+  const first = await broker.submitIntent(makeIntent(fields));
+  if (first.decision?.decision !== "allow" || (first.placed && first.placed.filledSize > 0)) {
+    return first;
+  }
+  console.log("[retry] allowed but unfilled — crossing a wider band once…");
+  const market = (fields as IntentInput).market;
+  const side = (fields as IntentInput).side;
+  const ctx = await adapter.getMarketContext(market, "testnet");
+  const wide = aggressiveLimitPx(side, ctx.markPx, 2000);
+  return broker.submitIntent(
+    makeIntent({ ...fields, order_type: "limit", limit_px: wide }),
+  );
+}
+
 async function act1(broker: RiskBroker, adapter: HlAdapter, policy: LoadedPolicy): Promise<void> {
   banner("ACT 1 · 策略 A 合法提案 → 放行 → 测试网真实成交 → 账实相符");
   const tradeMarket = await resolveTradeMarket(adapter, policy);
   await broker.setBaseline(tradeMarket);
   const size = await demoSize(adapter, tradeMarket);
-  const intent = makeIntent({
+  const result = await submitExpectFill(broker, adapter, {
     source: "strategy-a",
     market: tradeMarket,
     side: "buy",
@@ -101,9 +124,12 @@ async function act1(broker: RiskBroker, adapter: HlAdapter, policy: LoadedPolicy
     order_type: "market",
     meta: { rationale: "mean-reversion entry, small probe" },
   });
-  const result = await broker.submitIntent(intent);
-  if (result.decision?.decision !== "allow" || !result.placed || result.reconcile?.ok !== true) {
-    throw new Error("Act 1 failed: expected allow + fill + clean reconciliation");
+  const filled = result.placed && result.placed.filledSize > 0;
+  if (result.decision?.decision !== "allow" || !filled || result.reconcile?.ok !== true) {
+    throw new Error(
+      `Act 1 failed: expected allow + real fill + clean reconciliation ` +
+        `(decision=${result.decision?.code}, filled=${result.placed?.filledSize ?? 0})`,
+    );
   }
   console.log("[act1] ✔ allow → fill → truth OK (M4, M1)");
 }
@@ -173,26 +199,23 @@ async function act3(broker: RiskBroker, adapter: HlAdapter, policy: LoadedPolicy
   if (seedCount > 0) broker.seedSyntheticFill(tradeMarket, "buy", seedCount);
   const size = await demoSize(adapter, tradeMarket);
 
-  const oneMore = makeIntent({
+  const oneMore = {
     source: "ai-proposer",
     market: tradeMarket,
-    side: "buy",
+    side: "buy" as const,
     size,
-    order_type: "market",
+    order_type: "market" as const,
     meta: { rationale: "it keeps pumping — add again!" },
-  });
-  const result = await broker.submitIntent(oneMore);
+  };
+  const result = await submitExpectFill(broker, adapter, oneMore);
   if (result.decision?.code === "FOMO_SAME_SIDE_ADDS") {
     console.log("[act3] ✔ FOMO same-side-add guard fired (M3)");
     return;
   }
   // If the real fill quota allowed this one, the NEXT add must be stopped.
-  const again = await broker.submitIntent({
-    ...oneMore,
-    id: crypto.randomUUID(),
-    ts: new Date().toISOString(),
-    meta: { rationale: "one more, this is definitely the top" },
-  });
+  const again = await broker.submitIntent(
+    makeIntent({ ...oneMore, meta: { rationale: "one more, this is definitely the top" } }),
+  );
   if (again.decision?.code !== "FOMO_SAME_SIDE_ADDS" && again.decision?.code !== "FOMO_COOLDOWN") {
     throw new Error(`Act 3 failed: expected FOMO guard, got ${again.decision?.code ?? "allow"}`);
   }
