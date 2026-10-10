@@ -5,7 +5,7 @@
  * still open: unwinding is a human decision (`pnpm broker close`).
  */
 
-import { existsSync, mkdirSync, renameSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { HlAdapter } from "@vetoos/adapter-hl";
 import { loadPolicy } from "@vetoos/risk";
@@ -14,6 +14,18 @@ import { resolveTradeMarket } from "./demo.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  // Never pull state files out from under a running brokerd.
+  const lockPath = join(config.stateDir, "brokerd.lock");
+  if (existsSync(lockPath)) {
+    try {
+      const lock = JSON.parse(readFileSync(lockPath, "utf8")) as { pid: number; url: string };
+      process.kill(lock.pid, 0);
+      console.error(`[reset] brokerd (pid ${lock.pid}, ${lock.url}) is running — stop it before resetting state.`);
+      process.exit(1);
+    } catch {
+      /* stale lock — proceed */
+    }
+  }
   const adapter = new HlAdapter(config);
   const policy = loadPolicy(config.policyPath);
 
