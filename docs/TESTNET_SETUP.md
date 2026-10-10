@@ -99,3 +99,4 @@ pnpm broker unfreeze --confirm I_AM_HUMAN   # human-only reset after a freeze
 | `equity is 0` | faucet not claimed, or checking the agent instead of the account | `HL_ACCOUNT_ADDRESS` must be the **account** address; the agent key is only for signing |
 | venue rejects `agent not approved` | agent wallet not authorized on testnet | repeat step 2 on **testnet** (approvals are per-network) |
 | venue rejects `insufficient margin` | size too big for balance | sizes are auto-computed at ~$40 notional; check `configs/policy.demo.json` caps |
+| UI shows `enable trading from the deployer` on xyz:XYZ100 | the testnet xyz mirror is **deployer-gated** — users can't trade it, UI or API | expected — keep `VETOOS_TRADE_MARKET=BTC` in `.env`; fills use the testnet main perp book while vetoes still read mainnet HIP-3. Remove the override to retry xyz once the deployer opens it |

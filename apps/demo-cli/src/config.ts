@@ -17,11 +17,21 @@ export interface CliConfig {
   accountAddress?: string;
   builderAddress?: string;
   builderFeeTenthsBps?: number;
+  /** VETOOS_TRADE_MARKET: force the fill market (e.g. "BTC" while testnet xyz is deployer-gated). */
+  tradeMarket?: string;
 }
 
 export function repoRoot(): string {
   // apps/demo-cli/src/config.ts → up 3 dirs → repo root
   return resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+}
+
+/** Accept HL UI-style keys (64 hex, no prefix) and normalize to 0x-prefixed. */
+export function normalizePrivateKey(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) return `0x${trimmed}`;
+  return trimmed;
 }
 
 export function loadConfig(flags: Record<string, string | boolean> = {}): CliConfig {
@@ -36,12 +46,13 @@ export function loadConfig(flags: Record<string, string | boolean> = {}): CliCon
   return {
     policyPath,
     stateDir,
-    privateKey: process.env.HL_PRIVATE_KEY || undefined,
+    privateKey: normalizePrivateKey(process.env.HL_PRIVATE_KEY),
     accountAddress: process.env.HL_ACCOUNT_ADDRESS || undefined,
     builderAddress: process.env.HL_BUILDER_ADDRESS || undefined,
     builderFeeTenthsBps: process.env.HL_BUILDER_FEE_TENTHS_BPS
       ? Number(process.env.HL_BUILDER_FEE_TENTHS_BPS)
       : undefined,
+    tradeMarket: process.env.VETOOS_TRADE_MARKET || undefined,
   };
 }
 

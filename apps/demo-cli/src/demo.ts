@@ -16,6 +16,7 @@ import type { RiskBroker, SubmitResult } from "./broker.js";
 export interface DemoOptions {
   step?: number;
   auto: boolean;
+  tradeMarket?: string;
 }
 
 function banner(title: string): void {
@@ -34,8 +35,23 @@ async function waitOutCooldown(policy: LoadedPolicy, auto: boolean): Promise<voi
   await sleep((seconds + 1) * 1000);
 }
 
-/** Pick the market that can actually fill on testnet (HIP-3 preferred). */
-export async function resolveTradeMarket(adapter: HlAdapter, policy: LoadedPolicy): Promise<string> {
+/**
+ * Pick the market that can actually fill on testnet.
+ * Order: VETOOS_TRADE_MARKET override → policy default (if mirrored AND tradable)
+ * → BTC main perp. The testnet xyz mirror turned out to be deployer-gated
+ * ("enable trading from the deployer"), so BTC is the reliable default today;
+ * vetoes still read real mainnet HIP-3 data either way.
+ */
+export async function resolveTradeMarket(
+  adapter: HlAdapter,
+  policy: LoadedPolicy,
+  override?: string,
+): Promise<string> {
+  if (override) {
+    await adapter.getMarketContext(override, "testnet"); // throws if unknown → fail closed
+    console.log(`[setup] trade market pinned by VETOOS_TRADE_MARKET: ${override}`);
+    return override;
+  }
   const preferred = policy.policy.default_market;
   try {
     await adapter.getMarketContext(preferred, "testnet");
@@ -43,7 +59,7 @@ export async function resolveTradeMarket(adapter: HlAdapter, policy: LoadedPolic
     return preferred;
   } catch {
     console.log(
-      `[setup] ${preferred} is NOT mirrored on testnet → fill path uses testnet BTC perp.\n` +
+      `[setup] ${preferred} is NOT tradable on testnet → fill path uses testnet BTC perp.\n` +
         `        Vetoes still read real mainnet HIP-3 (${preferred}) data.`,
     );
     return "BTC";
@@ -73,10 +89,10 @@ export async function runDemo(
 ): Promise<void> {
   const p = policy.policy;
   const acts: Record<number, () => Promise<void>> = {
-    1: () => act1(broker, adapter, policy),
+    1: () => act1(broker, adapter, policy, opts.tradeMarket),
     2: () => act2(broker, adapter, policy),
-    3: () => act3(broker, adapter, policy),
-    4: () => act4(broker, adapter, policy),
+    3: () => act3(broker, adapter, policy, opts.tradeMarket),
+    4: () => act4(broker, adapter, policy, opts.tradeMarket),
   };
 
   const steps = opts.step ? [opts.step] : [1, 2, 3, 4];
@@ -111,9 +127,14 @@ async function submitExpectFill(
   );
 }
 
-async function act1(broker: RiskBroker, adapter: HlAdapter, policy: LoadedPolicy): Promise<void> {
+async function act1(
+  broker: RiskBroker,
+  adapter: HlAdapter,
+  policy: LoadedPolicy,
+  tradeOverride?: string,
+): Promise<void> {
   banner("ACT 1 · 策略 A 合法提案 → 放行 → 测试网真实成交 → 账实相符");
-  const tradeMarket = await resolveTradeMarket(adapter, policy);
+  const tradeMarket = await resolveTradeMarket(adapter, policy, tradeOverride);
   await broker.setBaseline(tradeMarket);
   const size = await demoSize(adapter, tradeMarket);
   const result = await submitExpectFill(broker, adapter, {
@@ -189,9 +210,14 @@ async function act2(broker: RiskBroker, adapter: HlAdapter, policy: LoadedPolicy
   console.log("[act2] ✔ real-data veto + cooldown + override refused (M2)");
 }
 
-async function act3(broker: RiskBroker, adapter: HlAdapter, policy: LoadedPolicy): Promise<void> {
+async function act3(
+  broker: RiskBroker,
+  adapter: HlAdapter,
+  policy: LoadedPolicy,
+  tradeOverride?: string,
+): Promise<void> {
   banner("ACT 3 · AI 连续同向加仓 → FOMO 刹车");
-  const tradeMarket = await resolveTradeMarket(adapter, policy);
+  const tradeMarket = await resolveTradeMarket(adapter, policy, tradeOverride);
   // Seed history so that exactly ONE more real add fits under the hourly cap;
   // the add after that must be stopped. Works in both --auto and --step mode.
   const already = broker.sameSideFillsLastHour(tradeMarket, "buy");
@@ -222,9 +248,14 @@ async function act3(broker: RiskBroker, adapter: HlAdapter, policy: LoadedPolicy
   console.log(`[act3] ✔ FOMO guard fired (${again.decision?.code}) (M3)`);
 }
 
-async function act4(broker: RiskBroker, adapter: HlAdapter, policy: LoadedPolicy): Promise<void> {
+async function act4(
+  broker: RiskBroker,
+  adapter: HlAdapter,
+  policy: LoadedPolicy,
+  tradeOverride?: string,
+): Promise<void> {
   banner("ACT 4 · 本地账本被篡改 → 成交真相层对账 → 冻结总闸");
-  const tradeMarket = await resolveTradeMarket(adapter, policy);
+  const tradeMarket = await resolveTradeMarket(adapter, policy, tradeOverride);
   const ctx = await adapter.getMarketContext(tradeMarket, "testnet");
 
   console.log("[tamper] 注入一笔从未真实成交的账本记录 / injecting a fill that never happened…");

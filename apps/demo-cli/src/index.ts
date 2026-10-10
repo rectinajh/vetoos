@@ -73,6 +73,7 @@ async function main(): Promise<number> {
       await runDemo(broker, adapter, policy, {
         auto: flags["auto"] === true,
         ...(typeof flags["step"] === "string" ? { step: Number(flags["step"]) } : {}),
+        ...(config.tradeMarket ? { tradeMarket: config.tradeMarket } : {}),
       });
       return 0;
     }
@@ -114,7 +115,7 @@ async function main(): Promise<number> {
       if (broker.frozen) broker.unfreeze(confirm);
       const policy = loadPolicy(config.policyPath);
       const adapter = new HlAdapter(config);
-      const market = await resolveTradeMarket(adapter, policy);
+      const market = await resolveTradeMarket(adapter, policy, config.tradeMarket);
       const position = await adapter.getPositionSize(market, "testnet");
       if (position === 0) {
         console.log("[close] already flat — nothing to do.");

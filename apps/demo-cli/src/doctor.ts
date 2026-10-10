@@ -85,18 +85,24 @@ export async function runDoctor(flags: Record<string, string | boolean>): Promis
     } catch (err) {
       checks.push({ name: "testnet account", ok: false, detail: String(err) });
     }
+    const pinned = config.tradeMarket;
+    const fillMarket = pinned ?? defaultMarket;
     try {
-      await adapter.getMarketContext(defaultMarket, "testnet");
+      await adapter.getMarketContext(fillMarket, "testnet");
       checks.push({
         name: "testnet trade market",
         ok: true,
-        detail: `${defaultMarket} exists on testnet — fills will be real HIP-3 testnet fills`,
+        detail: pinned
+          ? `${fillMarket} (pinned by VETOOS_TRADE_MARKET — testnet xyz is deployer-gated; vetoes still read mainnet HIP-3)`
+          : `${fillMarket} exists on testnet — fills will be real HIP-3 testnet fills`,
       });
-    } catch {
+    } catch (err) {
       checks.push({
         name: "testnet trade market",
-        ok: true,
-        detail: `${defaultMarket} NOT mirrored on testnet → demo fill path falls back to testnet BTC perp (vetoes still read mainnet HIP-3)`,
+        ok: pinned ? false : true,
+        detail: pinned
+          ? `pinned market ${fillMarket} unusable on testnet: ${String(err)}`
+          : `${defaultMarket} NOT usable on testnet → demo fill path falls back to testnet BTC perp (vetoes still read mainnet HIP-3)`,
       });
     }
   }
