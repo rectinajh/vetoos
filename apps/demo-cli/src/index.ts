@@ -18,6 +18,7 @@ import { RiskBroker } from "./broker.js";
 import { assertPolicyExists, loadConfig, type CliConfig } from "./config.js";
 import { runDemo, resolveTradeMarket } from "./demo.js";
 import { runDoctor } from "./doctor.js";
+import { runInit } from "./init.js";
 
 export function parseFlags(argv: string[]): Record<string, string | boolean> {
   const flags: Record<string, string | boolean> = {};
@@ -64,6 +65,9 @@ async function main(): Promise<number> {
   switch (command) {
     case "doctor":
       return await runDoctor(flags);
+
+    case "init":
+      return runInit(flags);
 
     case "demo": {
       assertWriteConfig(config);
@@ -140,6 +144,7 @@ async function main(): Promise<number> {
     default:
       console.log(`vetoos — Risk Broker CLI
 
+  pnpm broker init --template NAME           conservative | degen | fund → configs/policy.json
   pnpm preflight                             pre-flight checks (real data paths)
   pnpm demo --auto                           run all four demo acts
   pnpm demo --step N                         run only act N (1-4, for recording)

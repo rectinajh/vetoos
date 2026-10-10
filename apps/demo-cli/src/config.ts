@@ -5,7 +5,7 @@
 
 import { config as loadDotenv } from "dotenv";
 import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 loadDotenv({ quiet: true });
@@ -37,10 +37,12 @@ export function normalizePrivateKey(raw: string | undefined): string | undefined
 export function loadConfig(flags: Record<string, string | boolean> = {}): CliConfig {
   const root = repoRoot();
   const policyFlag = typeof flags["policy"] === "string" ? (flags["policy"] as string) : undefined;
-  const policyPath = resolve(
-    root,
-    process.env.VETOOS_POLICY ?? policyFlag ?? "configs/policy.demo.json",
-  );
+  // Resolution: explicit flag → VETOOS_POLICY → configs/policy.json (from
+  // `vetoos init`) → configs/policy.demo.json (shipped default).
+  const defaultPolicy = existsSync(join(root, "configs", "policy.json"))
+    ? "configs/policy.json"
+    : "configs/policy.demo.json";
+  const policyPath = resolve(root, policyFlag ?? process.env.VETOOS_POLICY ?? defaultPolicy);
   const stateDir = resolve(root, process.env.VETOOS_STATE_DIR ?? "logs");
 
   return {

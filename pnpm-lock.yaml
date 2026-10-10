@@ -11,6 +11,9 @@ importers:
       '@nktkas/hyperliquid':
         specifier: ^0.25.0
         version: 0.25.9(typescript@5.9.3)
+      '@vetoos/client':
+        specifier: workspace:*
+        version: link:packages/client
       dotenv:
         specifier: ^17.0.0
         version: 17.4.2
@@ -76,6 +79,15 @@ importers:
         specifier: ^17.0.0
         version: 17.4.2
 
+  apps/proposer-ai:
+    dependencies:
+      '@vetoos/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@vetoos/intent':
+        specifier: workspace:*
+        version: link:../../packages/intent
+
   packages/adapter-hl:
     dependencies:
       '@nktkas/hyperliquid':
@@ -83,6 +95,12 @@ importers:
         version: 0.25.9(typescript@5.9.3)
 
   packages/audit: {}
+
+  packages/client:
+    dependencies:
+      '@vetoos/intent':
+        specifier: workspace:*
+        version: link:../intent
 
   packages/intent:
     dependencies:

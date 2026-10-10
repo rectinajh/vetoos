@@ -15,6 +15,7 @@
     "demo": "tsx apps/demo-cli/src/index.ts demo",
     "demo:reset": "tsx apps/demo-cli/src/reset.ts",
     "brokerd": "tsx apps/brokerd/src/server.ts",
+    "proposer": "tsx apps/proposer-ai/src/index.ts",
     "preflight": "tsx apps/demo-cli/src/index.ts doctor",
     "keygen": "tsx apps/demo-cli/src/keygen.ts",
     "broker": "tsx apps/demo-cli/src/index.ts"
@@ -28,6 +29,7 @@
   },
   "dependencies": {
     "@nktkas/hyperliquid": "^0.25.0",
+    "@vetoos/client": "workspace:*",
     "dotenv": "^17.0.0",
     "zod": "^4.0.0"
   }

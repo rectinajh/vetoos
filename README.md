@@ -56,12 +56,37 @@ flowchart LR
 
 ```bash
 pnpm install
-pnpm test            # 65 unit tests: rule engine, intent guard, reconciliation
-pnpm preflight       # checks policy, keys, real mainnet + testnet paths
-pnpm demo --auto     # the four-act demo (needs testnet keys — docs/TESTNET_SETUP.md)
+pnpm test                               # 72 unit tests green
+pnpm broker init --template conservative   # pick a policy template (degen | fund also available)
+pnpm preflight                          # checks policy, keys, real mainnet + testnet paths
+pnpm brokerd                            # the broker as a service → http://127.0.0.1:4399/
 ```
 
-### The four acts (PRD M1–M5)
+Open **http://127.0.0.1:4399/** for the console: freeze banner, live account
+stats, bilingual decision feed, human-only unfreeze button.
+
+### Propose a trade from your strategy (5 lines)
+
+```ts
+import { createClient, makeIntent } from "@vetoos/client";
+const vetoos = createClient("http://127.0.0.1:4399");
+const res = await vetoos.submitIntent(makeIntent({
+  source: "my-strategy", market: "BTC", side: "buy", size: "0.0005", order_type: "market",
+}));
+console.log(res.decision?.code); // ALLOW, or a bilingual deny reason
+```
+
+Python works too — see [examples/proposer.py](examples/proposer.py). The API is
+documented at `/openapi.json`; submissions are **idempotent** by `intent.id`.
+
+### AI proposer
+
+```bash
+pnpm proposer "buy 0.0005 BTC, momentum"   # LLM → Intent IR → broker (OPENAI_* env optional)
+pnpm proposer --demo                       # incl. the smuggled-override refusal
+```
+
+### The four-act proof (PRD M1–M5)
 
 | Act | Story | Proves |
 |-----|-------|--------|
@@ -70,8 +95,8 @@ pnpm demo --auto     # the four-act demo (needs testnet keys — docs/TESTNET_SE
 | 3 | ai-proposer keeps adding same-side → **FOMO guard fires** | M3 |
 | 4 | local ledger is tampered → **reconciliation freezes the broker**; only a human can unfreeze | M5 |
 
-Record with `pnpm demo --step N`. Unwind afterwards with
-`pnpm broker close --confirm I_AM_HUMAN`.
+Record with `pnpm demo --step N`; reset between takes with `pnpm demo:reset`.
+Unwind positions with `pnpm broker close --confirm I_AM_HUMAN`.
 
 ## Repo layout
 
@@ -82,10 +107,15 @@ packages/
   adapter-hl/  Hyperliquid adapter: mainnet reads, testnet writes, HIP-3 asset ids
   truth/       fill-vs-position reconciliation + ledger
   audit/       JSONL audit trail with policy content hash
+  client/      typed client for the brokerd API
 apps/
-  demo-cli/    the Risk Broker process + four-act demo + preflight
+  brokerd/     the Risk Broker as a service: HTTP API + web console
+  proposer-ai/ LLM → Intent IR reference proposer (no keys, no vote)
+  demo-cli/    CLI: init wizard, preflight, four-act demo, unwind
 configs/
-  policy.demo.json   the rulebook (hashed into every audit record)
+  templates/   policy templates: conservative · degen · fund
+  policy.demo.json   the shipped default rulebook (hashed into every audit record)
+examples/      5-line strategy integrations (TS + Python)
 docs/
   PRD.md · ARCHITECTURE.md · TESTNET_SETUP.md · SUBMISSION.md
 ```

@@ -59,11 +59,11 @@ licenses; no pre-existing project code was reused.
 
 | Criterion | Our answer | Where it shows |
 |---|---|---|
-| Functionality | Working broker: allow→fill→reconcile, deny paths, freeze; 65 unit tests green | demo video, repo |
-| Potential impact | Every bot/AI trading on HL needs a trustworthy kill switch; HIP-3 multiplies the venues that need it | pitch video, GTM |
-| Novelty | Power structure is the product: proposal/veto separation + fill-truth layer + anti-FOMO guards. Not another predictor | pitch video |
-| UX | Plain-language bilingual deny reasons; one-command demo; human-only unfreeze | demo video |
-| Open-source | MIT; composable Intent IR so any strategy/AI can plug in as a proposer | repo |
+| Functionality | Working broker as a SERVICE: HTTP API, idempotent submissions, allow→fill→reconcile, deny paths, freeze; 72 unit tests green | demo video, repo |
+| Potential impact | Every bot/AI trading on HL needs a trustworthy kill switch; HIP-3 multiplies the venues that need it; policy templates make it usable day one | pitch video, GTM |
+| Novelty | Power structure is the product: proposal/veto separation + fill-truth layer + anti-FOMO guards; reference AI proposer shows both ends of the paradigm | pitch video |
+| UX | Web console (freeze banner, live stats, bilingual decision feed); plain-language deny reasons; human-only unfreeze | console screenshot, demo video |
+| Open-source | MIT; typed client + 5-line TS/Python examples + OpenAPI + policy templates — any strategy plugs in | repo |
 | Business plan | Open core + builder-code attribution + hosted monitoring for funds | §3 below |
 
 ## 3. GTM / demand validation (draft)
