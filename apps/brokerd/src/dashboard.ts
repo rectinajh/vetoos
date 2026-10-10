@@ -335,40 +335,59 @@ function toast(msg, ms) {
   t._h = setTimeout(function(){ t.className = ""; }, ms || 3200);
 }
 function walletProvider() {
-  // prefer MetaMask when multiple providers fight; fall back to any injected one
-  if (window.ethereum) {
-    if (window.ethereum.providers && window.ethereum.providers.length) {
-      var mm = window.ethereum.providers.find(function(p){ return p.isMetaMask; });
-      return mm || window.ethereum.providers[0];
+  // prefer MetaMask when multiple providers fight; fall back to any injected one.
+  // provider objects from different wallets are weirdly shaped — never trust them.
+  try {
+    var eth = window.ethereum;
+    if (!eth) return null;
+    var list = eth.providers;
+    if (list && typeof list.length === "number" && list.length > 0) {
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].isMetaMask) return list[i];
+      }
+      return list[0];
     }
-    return window.ethereum;
+    return eth;
+  } catch (e) {
+    return window.ethereum || null;
   }
-  return null;
 }
 function initWallet() {
   var btn = $("walletBtn");
   btn.addEventListener("click", function(){
-    if (state.wallet) { toast("wallet " + shortAddr(state.wallet) + " connected"); return; }
-    var eth = walletProvider();
-    if (!eth || !eth.request) {
-      toast("No wallet detected — install MetaMask, or open this page in your wallet's browser. Console works without one.");
-      return;
+    try {
+      if (state.wallet) { toast("wallet " + shortAddr(state.wallet) + " connected"); return; }
+      btn.textContent = "opening wallet…";
+      var eth = walletProvider();
+      if (!eth || typeof eth.request !== "function") {
+        btn.textContent = "Connect Wallet";
+        toast("No wallet detected — install MetaMask, or open this page in your wallet's browser. Console works without one.");
+        return;
+      }
+      toast("check your wallet to approve the connection…");
+      eth.request({ method: "eth_requestAccounts" }).then(function(accs){
+        if (!accs || !accs[0]) {
+          btn.textContent = "Connect Wallet";
+          toast("no account selected");
+          return;
+        }
+        state.wallet = accs[0];
+        btn.textContent = shortAddr(accs[0]);
+        btn.className = "wbtn connected";
+        btn.title = "connected — your signature is the human proof for unfreeze";
+        toast("wallet " + shortAddr(accs[0]) + " connected — it is your unfreeze key");
+      }).catch(function(err){
+        btn.textContent = "Connect Wallet";
+        toast("wallet connection failed: " + ((err && err.message) || "rejected"));
+      });
+    } catch (err) {
+      btn.textContent = "Connect Wallet";
+      toast("wallet handler error: " + ((err && err.message) || String(err)));
     }
-    toast("check your wallet to approve the connection…");
-    eth.request({ method: "eth_requestAccounts" }).then(function(accs){
-      if (!accs || !accs[0]) { toast("no account selected"); return; }
-      state.wallet = accs[0];
-      btn.textContent = shortAddr(accs[0]);
-      btn.className = "wbtn connected";
-      btn.title = "connected — your signature is the human proof for unfreeze";
-      toast("wallet " + shortAddr(accs[0]) + " connected — it is your unfreeze key");
-    }).catch(function(err){
-      toast("wallet connection failed: " + ((err && err.message) || "rejected"));
-    });
   });
-  var eth = walletProvider();
-  if (eth && eth.on) {
-    eth.on("accountsChanged", function(accs){
+  var eth0 = walletProvider();
+  if (eth0 && eth0.on) {
+    eth0.on("accountsChanged", function(accs){
       state.wallet = accs && accs[0] ? accs[0] : null;
       var b = $("walletBtn");
       if (state.wallet) { b.textContent = shortAddr(state.wallet); b.className = "wbtn connected"; }
