@@ -565,9 +565,6 @@ function refresh() {
     $("truth").className = "panel truth" + (status.frozen ? " bad" : "");
 
     var events = feed.events || [];
-    var lastFill = null;
-    events.forEach(function(ev){ if (ev.type === "order_placed" && ev.data && ev.data.filledSize > 0) lastFill = ev.data; });
-    $("lastfill").textContent = lastFill ? (lastFill.filledSize + " @ " + lastFill.avgPx) : "–";
     $("feed").innerHTML = events.slice().reverse().map(feedLine).join("") ||
       '<div class="row"><span class="t">--:--:--</span><span class="other">idle — fire a scenario on the left</span></div>';
     handleNewEvents(events);
