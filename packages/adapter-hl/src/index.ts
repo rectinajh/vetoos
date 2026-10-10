@@ -15,6 +15,7 @@ import {
   depthWithinBand,
   parseMarket,
   roundSize,
+  withBackoff,
   type BookLevels,
 } from "./helpers.js";
 
@@ -108,7 +109,7 @@ export class HlAdapter {
 
   /** Dex names in perpDexs() order; null = main dex. Index = perp dex index. */
   async listPerpDexNames(network: Network): Promise<(string | null)[]> {
-    const dexs = await this.info(network).perpDexs();
+    const dexs = await withBackoff(() => this.info(network).perpDexs());
     return dexs.map((d) => (d === null ? null : d.name));
   }
 
@@ -131,8 +132,8 @@ export class HlAdapter {
   async getMarketContext(market: string, network: Network): Promise<MarketContext> {
     const parsed = parseMarket(market);
     const perpDexIndex = await this.findPerpDexIndex(parsed.dex, network);
-    const [meta, ctxs] = await this.info(network).metaAndAssetCtxs(
-      parsed.dex ? { dex: parsed.dex } : {},
+    const [meta, ctxs] = await withBackoff(() =>
+      this.info(network).metaAndAssetCtxs(parsed.dex ? { dex: parsed.dex } : {}),
     );
     const metaIndex = meta.universe.findIndex(
       (u) => u.name === parsed.coin || u.name === parsed.venueCoin,
@@ -163,7 +164,7 @@ export class HlAdapter {
 
   async getBook(market: string, network: Network): Promise<BookLevels> {
     const { venueCoin } = parseMarket(market);
-    const book = await this.info(network).l2Book({ coin: venueCoin });
+    const book = await withBackoff(() => this.info(network).l2Book({ coin: venueCoin }));
     if (!book) throw new Error(`no l2Book for ${venueCoin} on ${network} — failing closed`);
     return { levels: book.levels as BookLevels["levels"] };
   }
@@ -198,10 +199,12 @@ export class HlAdapter {
 
   /** Real account state (equity / margin / positions) on the given network. */
   async getAccountState(network: Network, dex?: string | null): Promise<AccountState> {
-    const state = await this.info(network).clearinghouseState({
-      user: this.accountAddress() as `0x${string}`,
-      ...(dex ? { dex } : {}),
-    });
+    const state = await withBackoff(() =>
+      this.info(network).clearinghouseState({
+        user: this.accountAddress() as `0x${string}`,
+        ...(dex ? { dex } : {}),
+      }),
+    );
     const equityUsd = Number(state.marginSummary.accountValue);
     const availableMarginUsd = Number(state.withdrawable);
     const positions = new Map<string, number>();

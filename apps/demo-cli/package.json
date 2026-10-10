@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./broker": "./src/broker.ts",
+    "./config": "./src/config.ts",
+    "./demo": "./src/demo.ts"
+  },
   "bin": {
     "vetoos": "./src/index.ts"
   },

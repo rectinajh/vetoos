@@ -1,0 +1,15 @@
+{
+  "name": "@vetoos/brokerd",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/server.ts",
+  "dependencies": {
+    "@vetoos/adapter-hl": "workspace:*",
+    "@vetoos/audit": "workspace:*",
+    "@vetoos/demo-cli": "workspace:*",
+    "@vetoos/intent": "workspace:*",
+    "@vetoos/risk": "workspace:*",
+    "@vetoos/truth": "workspace:*"
+  }
+}

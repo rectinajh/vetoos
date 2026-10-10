@@ -34,6 +34,27 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@24.19.1)(tsx@4.23.15)
 
+  apps/brokerd:
+    dependencies:
+      '@vetoos/adapter-hl':
+        specifier: workspace:*
+        version: link:../../packages/adapter-hl
+      '@vetoos/audit':
+        specifier: workspace:*
+        version: link:../../packages/audit
+      '@vetoos/demo-cli':
+        specifier: workspace:*
+        version: link:../demo-cli
+      '@vetoos/intent':
+        specifier: workspace:*
+        version: link:../../packages/intent
+      '@vetoos/risk':
+        specifier: workspace:*
+        version: link:../../packages/risk
+      '@vetoos/truth':
+        specifier: workspace:*
+        version: link:../../packages/truth
+
   apps/demo-cli:
     dependencies:
       '@vetoos/adapter-hl':

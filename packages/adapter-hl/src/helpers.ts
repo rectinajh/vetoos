@@ -95,3 +95,36 @@ export function aggressiveLimitPx(
   const px = side === "buy" ? markPx * (1 + band) : markPx * (1 - band);
   return toSigFigs(px);
 }
+
+/** True for venue/transport errors worth retrying (rate limits, 5xx, network). */
+export function isRetryableError(err: unknown): boolean {
+  const msg = String(err instanceof Error ? err.message : err);
+  return /429|rate.?limit|5\d\d|timeout|timed out|ECONNRESET|ETIMEDOUT|fetch failed/i.test(msg);
+}
+
+export interface BackoffOptions {
+  attempts?: number;
+  baseMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Exponential backoff for READ calls. Never wrap order placement with this:
+ * a retried order can become a double fill — reads retry, writes fail loud.
+ */
+export async function withBackoff<T>(fn: () => Promise<T>, opts: BackoffOptions = {}): Promise<T> {
+  const attempts = opts.attempts ?? 3;
+  const baseMs = opts.baseMs ?? 500;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableError(err) || i === attempts - 1) throw err;
+      await sleep(baseMs * Math.pow(2, i));
+    }
+  }
+  throw lastErr;
+}

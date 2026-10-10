@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "demo": "tsx apps/demo-cli/src/index.ts demo",
     "demo:reset": "tsx apps/demo-cli/src/reset.ts",
+    "brokerd": "tsx apps/brokerd/src/server.ts",
     "preflight": "tsx apps/demo-cli/src/index.ts doctor",
     "keygen": "tsx apps/demo-cli/src/keygen.ts",
     "broker": "tsx apps/demo-cli/src/index.ts"

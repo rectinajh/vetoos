@@ -3,9 +3,11 @@ import {
   aggressiveLimitPx,
   computeHip3AssetId,
   depthWithinBand,
+  isRetryableError,
   parseMarket,
   roundSize,
   toSigFigs,
+  withBackoff,
   type BookLevels,
 } from "./helpers.js";
 
@@ -94,5 +96,69 @@ describe("price & size rounding", () => {
   it("aggressive limit crosses the spread in the right direction", () => {
     expect(Number(aggressiveLimitPx("buy", 100))).toBeGreaterThan(100);
     expect(Number(aggressiveLimitPx("sell", 100))).toBeLessThan(100);
+  });
+});
+
+describe("withBackoff", () => {
+  const noSleep = async () => {};
+
+  it("returns immediately on success", async () => {
+    let calls = 0;
+    const r = await withBackoff(async () => {
+      calls++;
+      return 42;
+    }, { sleep: noSleep });
+    expect(r).toBe(42);
+    expect(calls).toBe(1);
+  });
+
+  it("retries rate limits then succeeds", async () => {
+    let calls = 0;
+    const r = await withBackoff(
+      async () => {
+        calls++;
+        if (calls < 3) throw new Error("429 Too Many Requests");
+        return "ok";
+      },
+      { sleep: noSleep, attempts: 3 },
+    );
+    expect(r).toBe("ok");
+    expect(calls).toBe(3);
+  });
+
+  it("gives up after the attempt budget", async () => {
+    let calls = 0;
+    await expect(
+      withBackoff(
+        async () => {
+          calls++;
+          throw new Error("503 Service Unavailable");
+        },
+        { sleep: noSleep, attempts: 2 },
+      ),
+    ).rejects.toThrow("503");
+    expect(calls).toBe(2);
+  });
+
+  it("does NOT retry non-retryable errors", async () => {
+    let calls = 0;
+    await expect(
+      withBackoff(
+        async () => {
+          calls++;
+          throw new Error("Invalid spot");
+        },
+        { sleep: noSleep, attempts: 3 },
+      ),
+    ).rejects.toThrow("Invalid spot");
+    expect(calls).toBe(1);
+  });
+
+  it("classifies retryable errors", () => {
+    expect(isRetryableError(new Error("429 rate limit"))).toBe(true);
+    expect(isRetryableError(new Error("502 Bad Gateway"))).toBe(true);
+    expect(isRetryableError(new Error("fetch failed"))).toBe(true);
+    expect(isRetryableError(new Error("Invalid spot"))).toBe(false);
+    expect(isRetryableError(new Error("insufficient margin"))).toBe(false);
   });
 });

@@ -27,6 +27,13 @@ export const WRITE_NETWORK: Network = "testnet"; // real fills, controlled size
 
 const RECONCILE_TOLERANCE_PCT = 0.005; // 0.5% or 1 lot, whichever is larger
 
+interface ProcessedRecord {
+  decision: Decision;
+  placed?: PlacedOrder;
+  reconcileOk?: boolean;
+  ts: number;
+}
+
 interface BrokerState {
   frozen: boolean;
   freezeReason?: string;
@@ -35,6 +42,8 @@ interface BrokerState {
   baseline?: { market: string; size: number; ts: number };
   dailyRealizedPnlUsd: number;
   day: string;
+  /** Idempotency: intent id → outcome. Retries never double-fill. */
+  processed: Record<string, ProcessedRecord>;
 }
 
 export interface SubmitResult {
@@ -42,7 +51,11 @@ export interface SubmitResult {
   decision?: Decision;
   placed?: PlacedOrder;
   reconcile?: ReconcileResult;
+  /** True when this intent id was already processed — returned from cache. */
+  duplicate?: boolean;
 }
+
+const MAX_PROCESSED = 500;
 
 export class RiskBroker {
   private readonly statePath: string;
@@ -67,6 +80,7 @@ export class RiskBroker {
         parsed.dailyRealizedPnlUsd = 0;
         parsed.day = today;
       }
+      parsed.processed ??= {};
       return parsed;
     }
     return {
@@ -74,6 +88,7 @@ export class RiskBroker {
       history: [],
       dailyRealizedPnlUsd: 0,
       day: today,
+      processed: {},
     };
   }
 
@@ -146,6 +161,23 @@ export class RiskBroker {
       return { validationError: validation.error };
     }
     const intent = validation.intent;
+
+    // Idempotency: a retried intent id returns its recorded outcome instead
+    // of being evaluated — and potentially filled — twice.
+    const seen = this.state.processed[intent.id];
+    if (seen) {
+      this.audit.recordAndSay(
+        "decision",
+        { intent_id: intent.id, duplicate: true, code: seen.decision.code },
+        `[dup] 幂等命中 / intent ${intent.id.slice(0, 8)}… already processed (${seen.decision.code}), returning cached outcome`,
+      );
+      return {
+        decision: seen.decision,
+        ...(seen.placed ? { placed: seen.placed } : {}),
+        duplicate: true,
+      };
+    }
+
     const now = Date.now();
     this.pushHistory({ ts: now, market: intent.market, side: intent.side, kind: "intent" });
     this.audit.record("intent_received", { intent });
@@ -192,6 +224,7 @@ export class RiskBroker {
     );
     if (decision.decision === "deny") {
       this.pushHistory({ ts: now, market: intent.market, side: intent.side, kind: "deny" });
+      this.recordProcessed(intent.id, { decision, ts: now });
       this.saveState();
       return { decision };
     }
@@ -249,8 +282,22 @@ export class RiskBroker {
         szDecimals: snapshot.szDecimals,
       },
     ]);
+    this.recordProcessed(intent.id, { decision, placed, reconcileOk: reconcile.ok, ts: now });
     this.saveState();
     return { decision, placed, reconcile };
+  }
+
+  private recordProcessed(intentId: string, rec: ProcessedRecord): void {
+    this.state.processed[intentId] = rec;
+    const ids = Object.keys(this.state.processed);
+    if (ids.length > MAX_PROCESSED) {
+      const oldestFirst = ids.sort(
+        (a, b) => (this.state.processed[a]?.ts ?? 0) - (this.state.processed[b]?.ts ?? 0),
+      );
+      for (const id of oldestFirst.slice(0, ids.length - MAX_PROCESSED)) {
+        delete this.state.processed[id];
+      }
+    }
   }
 
   private async reconcileWindow(
