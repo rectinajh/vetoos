@@ -87,10 +87,18 @@ async function liveAccount(ctx: Context): Promise<unknown> {
   return data;
 }
 
+/** When set, all POST endpoints require this token (for tunnel exposure). */
+const PUBLIC_TOKEN = process.env.VETOOS_PUBLIC_TOKEN;
+
 async function route(ctx: Context, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
   const method = req.method ?? "GET";
+
+  if (PUBLIC_TOKEN && method === "POST" && req.headers["x-vetoos-token"] !== PUBLIC_TOKEN) {
+    json(res, 401, { error: "missing or invalid x-vetoos-token (service is exposed via a tunnel)" });
+    return;
+  }
 
   if (method === "GET" && path === "/") {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });

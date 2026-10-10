@@ -323,6 +323,13 @@ export function renderDashboard(build = "dev"): string {
 <script>
 var RULES = ["freeze","market_data","allowed_market","notional","leverage","daily_loss","cooldown","same_side_adds","rate_limit","book_depth","margin"];
 var RULE_LABEL = {freeze:"global freeze",market_data:"real market data",allowed_market:"allowed market",notional:"notional cap",leverage:"leverage cap",daily_loss:"daily-loss breaker",cooldown:"post-deny cool-down",same_side_adds:"FOMO same-side adds",rate_limit:"order frequency",book_depth:"book capacity",margin:"margin check"};
+var TOKEN = "";
+try { TOKEN = new URLSearchParams(location.search).get("token") || ""; } catch (e) {}
+function postHeaders() {
+  var h = { "content-type": "application/json" };
+  if (TOKEN) h["x-vetoos-token"] = TOKEN;
+  return h;
+}
 var state = { lastKey: null, busy: false, tradeMarket: "BTC", lastOk: 0, wallet: null };
 
 // ---- wallet: optional. Only the human unfreeze uses it (EIP-191 proof). ----
@@ -456,13 +463,13 @@ function intentFor(kind, market) {
 function fire(kind) {
   document.querySelectorAll("button.scn").forEach(function(b){ b.disabled = true; });
   var done = function(){ document.querySelectorAll("button.scn").forEach(function(b){ b.disabled = false; }); };
-  if (kind === "tamper") { fetch("/v1/demo/tamper", {method:"POST"}).finally(function(){ setTimeout(done, 600); }); return; }
+  if (kind === "tamper") { fetch("/v1/demo/tamper", {method:"POST", headers:postHeaders()}).finally(function(){ setTimeout(done, 600); }); return; }
   if (kind === "fomo") {
     var n = 0;
     var step = function(){
       if (n >= 4) { done(); return; }
       n++;
-      fetch("/v1/intents",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(intentFor("fomo", state.tradeMarket))})
+      fetch("/v1/intents",{method:"POST",headers:postHeaders(),body:JSON.stringify(intentFor("fomo", state.tradeMarket))})
         .then(function(r){ return r.json(); })
         .then(function(res){
           var code = res.decision && res.decision.code;
@@ -472,7 +479,7 @@ function fire(kind) {
     };
     step(); return;
   }
-  fetch("/v1/intents",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(intentFor(kind, state.tradeMarket))})
+  fetch("/v1/intents",{method:"POST",headers:postHeaders(),body:JSON.stringify(intentFor(kind, state.tradeMarket))})
     .finally(function(){ setTimeout(done, 800); });
 }
 document.querySelectorAll("button.scn").forEach(function(b){
@@ -488,7 +495,7 @@ $("ovBtn").onclick = function(){
       .then(function(sig){
         return fetch("/v1/unfreeze", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: postHeaders(),
           body: JSON.stringify({ address: state.wallet, message: msg, signature: sig }),
         });
       })
@@ -502,7 +509,8 @@ $("ovBtn").onclick = function(){
     return;
   }
   // Fallback: local human token (judges without a wallet).
-  fetch("/v1/unfreeze", { method: "POST", headers: { "x-vetoos-human": "I_AM_HUMAN" } }).then(refresh);
+  var uh = postHeaders(); uh["x-vetoos-human"] = "I_AM_HUMAN";
+  fetch("/v1/unfreeze", { method: "POST", headers: uh }).then(refresh);
 };
 
 function feedLine(ev) {
