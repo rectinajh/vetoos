@@ -196,6 +196,7 @@ export function renderDashboard(build = "dev"): string {
     <span class="badge mono" id="policy">policy …</span>
     <span class="badge" id="nets">…</span>
     <span class="badge mono" id="clock"></span>
+    <span class="badge mono" id="chain" title="sha256 hash-chained audit JSONL (GET /v1/audit/verify)">audit chain …</span>
     <span class="badge mono" title="build hash — hard-refresh if this is stale">${build}</span>
   </header>
 
@@ -350,6 +351,14 @@ function postHeaders() {
   if (TOKEN) h["x-vetoos-token"] = TOKEN;
   return h;
 }
+// All reads go through here so an optional read-guard token is honoured too.
+function get(url) { return fetch(url, TOKEN ? { headers: { "x-vetoos-token": TOKEN } } : undefined).then(function(r){ return r.json(); }); }
+// Every value interpolated into innerHTML is escaped — intents are untrusted input.
+function esc(v) {
+  return String(v === undefined || v === null ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
 var state = { lastKey: null, busy: false, tradeMarket: "BTC", lastOk: 0 };
 setInterval(function(){
   var el = $("fresh"); if (!el) return;
@@ -357,13 +366,13 @@ setInterval(function(){
   if (age <= 8) { el.textContent = "LIVE · " + age + "s"; el.style.color = "var(--green)"; el.style.borderColor = "var(--green)"; }
   else { el.textContent = "STALE · " + age + "s"; el.style.color = "var(--red)"; el.style.borderColor = "var(--red)"; }
 }, 1000);
-var $ = function(id){ return document.getElementById(id); };
+var $ = function(id){ return document.getElementById(id.charAt(0) === "#" ? id.slice(1) : id); };
 var fmt = function(n,d){ return Number(n).toLocaleString(undefined,{maximumFractionDigits:(d===undefined?2:d)}); };
 function gaugeColor(pct){ return pct>=0.9?"var(--red)":(pct>=0.7?"var(--amber)":"var(--green)"); }
 
 function buildPipe() {
   $("pipe").innerHTML = RULES.map(function(r){
-    return '<div class="rule" id="rule-'+r+'"><div class="light"></div><div class="rn mono">'+RULE_LABEL[r]+'</div><div class="dt"></div></div>';
+    return '<div class="rule" id="rule-'+esc(r)+'"><div class="light"></div><div class="rn mono">'+esc(RULE_LABEL[r])+'</div><div class="dt"></div></div>';
   }).join("");
 }
 function resetPipe() {
@@ -411,7 +420,7 @@ function intentFor(kind, market) {
 function fire(kind) {
   document.querySelectorAll("button.scn").forEach(function(b){ b.disabled = true; });
   var done = function(){ document.querySelectorAll("button.scn").forEach(function(b){ b.disabled = false; }); };
-  if (kind === "tamper") { fetch("/v1/demo/tamper", {method:"POST", headers:postHeaders()}).finally(function(){ setTimeout(done, 600); }); return; }
+  if (kind === "tamper") { fetch("/v1/demo/tamper", {method:"POST", headers:postHeaders()}).finally(function(){ setTimeout(function(){ done(); refresh(); }, 600); }); return; }
   if (kind === "fomo") {
     var n = 0;
     var step = function(){
@@ -428,7 +437,7 @@ function fire(kind) {
     step(); return;
   }
   fetch("/v1/intents",{method:"POST",headers:postHeaders(),body:JSON.stringify(intentFor(kind, state.tradeMarket))})
-    .finally(function(){ setTimeout(done, 800); });
+    .finally(function(){ setTimeout(function(){ done(); refresh(); }, 800); });
 }
 document.querySelectorAll("button.scn").forEach(function(b){
   b.addEventListener("click", function(){ fire(b.getAttribute("data-s")); });
@@ -444,16 +453,20 @@ function feedLine(ev) {
   var d = ev.data || {};
   var cls = "other", txt = ev.type;
   if (ev.type === "decision") {
-    var code = d.code || (d.validationError ? "INVALID" : "?");
+    var code = d.code || (d.validationError || d.error ? "INVALID" : "?");
     cls = (d.decision === "allow") ? "allow" : "deny";
-    txt = (d.decision || "deny").toUpperCase() + " · " + code + (d.duplicate ? " · DUP" : "");
+    txt = (d.decision || "deny").toUpperCase() + " · " + code + (d.duplicate ? " · DUP" : "") + (d.late_freeze_check ? " · LATE-FREEZE" : "");
     txt += " — " + (d.message_zh || d.error || "");
-  } else if (ev.type === "order_placed") { cls = "allow"; txt = "FILL " + d.filledSize + " @ " + d.avgPx + " (oid " + d.oid + ")"; }
+  } else if (ev.type === "order_placed") {
+    cls = d.filledSize > 0 ? "allow" : "other";
+    txt = (d.filledSize > 0 ? "FILL " + d.filledSize + " @ " + d.avgPx : "NO FILL (" + (d.status || "?") + ")") + " (oid " + d.oid + ")";
+  }
   else if (ev.type === "freeze") { cls = "freezeEv"; txt = "FROZEN — " + (d.reason || ""); }
   else if (ev.type === "reconcile") { txt = "reconcile " + (d.ok ? "OK" : "MISMATCH") + " (" + d.market + ")"; }
   else if (ev.type === "unfreeze") { cls = "allow"; txt = "human unfreeze"; }
   else if (ev.type === "startup") { txt = "startup · policy loaded · real ctx " + (d.market || ""); }
-  return '<div class="row"><span class="t">'+(ev.ts||"").slice(11,19)+'</span><span class="'+cls+'">'+txt+'</span></div>';
+  else if (ev.type === "error") { cls = "deny"; txt = "ERROR · " + (d.where || "") + " — " + (d.error || d.note || ""); }
+  return '<div class="row"><span class="t">'+esc((ev.ts||"").slice(11,19))+'</span><span class="'+cls+'" title="#'+esc(ev.seq)+'">'+esc(txt)+'</span></div>';
 }
 
 function handleNewEvents(events) {
@@ -474,7 +487,7 @@ function setGauge(id, idV, used, cap, suffix) {
   var pct = cap > 0 ? used / cap : 0;
   $(id).style.width = Math.min(pct * 100, 100) + "%";
   $(id).style.background = gaugeColor(pct);
-  $(idV).textContent = suffix ? used + suffix : (used + "/" + cap);
+  $(idV).textContent = suffix ? fmt(used) + suffix : (fmt(used) + "/" + fmt(cap));
 }
 
 var equitySeries = [];
@@ -494,16 +507,21 @@ function drawSpark() {
     (up ? "#3fb950" : "#f85149") + '" stroke-width="1.6"/>';
 }
 
+var refreshing = false;
 function refresh() {
+  // One unified refresher; the server caches venue reads (2.5s–30s), so the
+  // 2s poll costs local file reads only. Skips while hidden or still in flight.
+  if (document.hidden || refreshing) return;
+  refreshing = true;
   Promise.all([
-    fetch("/v1/status").then(function(r){return r.json();}),
-    fetch("/v1/account").then(function(r){return r.json();}),
-    fetch("/v1/feed?n=60").then(function(r){return r.json();}),
-    fetch("/v1/market").then(function(r){return r.json();}),
-    fetch("/v1/risk").then(function(r){return r.json();}),
-    fetch("/v1/execution").then(function(r){return r.json();}),
-    fetch("/v1/stats").then(function(r){return r.json();}),
-    fetch("/v1/counterfactual").then(function(r){return r.json();}),
+    get("/v1/status"),
+    get("/v1/account"),
+    get("/v1/feed?n=60"),
+    get("/v1/market"),
+    get("/v1/risk"),
+    get("/v1/execution"),
+    get("/v1/stats"),
+    get("/v1/counterfactual"),
   ]).then(function(all){
     var status = all[0], account = all[1], feed = all[2], market = all[3], risk = all[4],
         execution = all[5], stats = all[6], cf = all[7];
@@ -512,6 +530,9 @@ function refresh() {
     $("policy").textContent = "policy " + String(status.policyHash||"").slice(0,12) + "…";
     $("gatehash").textContent = "sha256 " + String(status.policyHash||"").slice(0,16) + "…";
     $("nets").textContent = status.tradeMarket + " · read " + status.readNetwork + " · write " + status.writeNetwork;
+    var ch = status.auditChain || {};
+    $("chain").textContent = ch.ok === false ? "audit chain BROKEN @" + ch.brokenAt : "audit chain OK · " + (ch.length || 0);
+    $("chain").style.color = ch.ok === false ? "var(--red)" : "var(--dim)";
 
     var h = market.hip3 || {};
     $("hipChip").textContent = (h.market || "HIP-3").split(":")[0];
@@ -542,8 +563,8 @@ function refresh() {
       ? execution.fills.map(function(f){
           var t = new Date(f.ts).toISOString().slice(11, 19);
           return '<div class="fillrow"><span class="' + (f.side === "B" ? "b" : "s") + '">' +
-            (f.side === "B" ? "BUY" : "SELL") + '</span><span class="mono">' + f.size + " " + f.coin +
-            '</span><span class="mono">@ ' + fmt(f.px, 1) + '</span><span class="mono" style="color:#48576e">' + t + "</span></div>";
+            (f.side === "B" ? "BUY" : "SELL") + '</span><span class="mono">' + esc(f.size) + " " + esc(f.coin) +
+            '</span><span class="mono">@ ' + esc(fmt(f.px, 1)) + '</span><span class="mono" style="color:#48576e">' + esc(t) + "</span></div>";
         }).join("")
       : '<div class="noalerts">no fills yet this session</div>';
 
@@ -562,7 +583,7 @@ function refresh() {
     $("bycode").innerHTML = codes.length
       ? codes.sort(function(a,b){ return stats.byCode[b] - stats.byCode[a]; }).map(function(c){
           var w = Math.max(4, stats.byCode[c] / maxC * 100);
-          return '<div class="bc"><span class="nm mono">' + c + '</span><span class="bb" style="width:' + w + '%"></span><span class="ct">' + stats.byCode[c] + "</span></div>";
+          return '<div class="bc"><span class="nm mono">' + esc(c) + '</span><span class="bb" style="width:' + w + '%"></span><span class="ct">' + esc(stats.byCode[c]) + "</span></div>";
         }).join("")
       : '<div class="noalerts">no denials yet</div>';
 
@@ -576,10 +597,10 @@ function refresh() {
       ? cf.rows.slice().reverse().map(function(r){
           var cls = r.pnl >= 0 ? "pnl-pos" : "pnl-neg";
           var pv = (r.pnl >= 0 ? "+$" : "-$") + fmt(Math.abs(r.pnl));
-          return '<div class="cfrow"><span class="t mono">' + r.ts.slice(11, 19) + '</span><span class="m">' +
-            r.side.toUpperCase() + " " + r.size + " " + r.market + ' <span style="color:#48576e">[' + r.code + "]</span></span>" +
-            '<span class="mono" style="color:#48576e">' + fmt(r.entryPx, 1) + "→" + fmt(r.nowPx, 1) + '</span>' +
-            '<span class="p mono ' + cls + '">' + pv + "</span></div>";
+          return '<div class="cfrow"><span class="t mono">' + esc(r.ts.slice(11, 19)) + '</span><span class="m">' +
+            esc(r.side.toUpperCase()) + " " + esc(r.size) + " " + esc(r.market) + ' <span style="color:#48576e">[' + esc(r.code) + "]</span></span>" +
+            '<span class="mono" style="color:#48576e">' + esc(fmt(r.entryPx, 1)) + "→" + esc(fmt(r.nowPx, 1)) + '</span>' +
+            '<span class="p mono ' + cls + '">' + esc(pv) + "</span></div>";
         }).join("")
       : '<div class="noalerts">no denied intents yet — fire the oversized scenario</div>';
 
@@ -599,7 +620,7 @@ function refresh() {
     var alerts = risk.alerts || [];
     $("alertCount").textContent = alerts.length;
     $("alerts").innerHTML = alerts.length
-      ? alerts.map(function(a){ return '<div class="alert"><span class="lvl '+a.level+'">'+a.level.toUpperCase()+'</span><span class="txt">'+a.text+'</span></div>'; }).join("")
+      ? alerts.map(function(a){ var lv = a.level === "crit" || a.level === "warn" ? a.level : "info"; return '<div class="alert"><span class="lvl '+lv+'">'+esc(lv.toUpperCase())+'</span><span class="txt">'+esc(a.text)+'</span></div>'; }).join("")
       : '<div class="noalerts">no active alerts — nominal</div>';
 
     $("overlay").style.display = status.frozen ? "flex" : "none";
@@ -615,7 +636,7 @@ function refresh() {
       '<div class="row"><span class="t">--:--:--</span><span class="other">idle — fire a scenario on the left</span></div>';
     handleNewEvents(events);
     $("clock").textContent = new Date().toISOString().slice(11,19) + "Z";
-  }).catch(function(){});
+  }).catch(function(){}).finally(function(){ refreshing = false; });
 }
 
 // ---- risk radar + AI advisory score ----
@@ -646,16 +667,17 @@ function drawRadar(axes) {
     s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="3" fill="#22d3ee"/>';
     var lp = radarPoint(cx, cy, R + 22, i, n);
     var anchor = Math.abs(lp[0] - cx) < 20 ? "middle" : lp[0] > cx ? "start" : "end";
-    s += '<text x="' + lp[0] + '" y="' + lp[1] + '" text-anchor="' + anchor + '" font-size="9.5" fill="#7d8ba0">' + a.label + "</text>";
+    s += '<text x="' + lp[0] + '" y="' + lp[1] + '" text-anchor="' + anchor + '" font-size="9.5" fill="#7d8ba0">' + esc(a.label) + "</text>";
     var vp = radarPoint(cx, cy, R + 36, i, n);
     var col = a.value >= 85 ? "#f85149" : a.value >= 60 ? "#d29922" : "#22d3ee";
-    s += '<text x="' + vp[0] + '" y="' + vp[1] + '" text-anchor="' + anchor + '" font-size="10" font-weight="700" fill="' + col + '">' + a.value + "</text>";
+    s += '<text x="' + vp[0] + '" y="' + vp[1] + '" text-anchor="' + anchor + '" font-size="10" font-weight="700" fill="' + col + '">' + (a.unknown ? "?" : esc(a.value)) + "</text>";
   });
   s += '<circle cx="' + cx + '" cy="' + cy + '" r="2.5" fill="#7d8ba0"/>';
   $("radar").innerHTML = s;
 }
 function pollAiRisk() {
-  fetch("/v1/ai-risk").then(function(r) { return r.json(); }).then(function(rep) {
+  if (document.hidden) return;
+  get("/v1/ai-risk").then(function(rep) {
     if (!rep || !rep.axes) return;
     drawRadar(rep.axes);
     $("radarSrc").textContent = rep.source === "llm" ? "AI+rules" : "rules counters";
@@ -674,6 +696,7 @@ refresh();
 setInterval(refresh, 2000);
 pollAiRisk();
 setInterval(pollAiRisk, 15000);
+document.addEventListener("visibilitychange", function(){ if (!document.hidden) { refresh(); pollAiRisk(); } });
 </script>
 </body>
 </html>`;

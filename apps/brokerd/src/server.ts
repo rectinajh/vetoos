@@ -4,452 +4,70 @@
  *
  * Strategies and AI proposers talk HTTP; only this process holds keys.
  * Binds to localhost by default. The unfreeze endpoint is gated behind a
- * human confirmation header — there is intentionally no way for a model
- * to release the brake.
+ * human confirmation (wallet signature or explicit header) — there is
+ * intentionally no way for a model to release the brake.
  *
- *   pnpm brokerd          → http://127.0.0.1:4310  (dashboard + API)
+ *   pnpm brokerd          → http://127.0.0.1:4399  (dashboard + API)
+ *
+ * Env:
+ *   VETOOS_PORT / VETOOS_HOST        bind address (default 127.0.0.1:4399)
+ *   VETOOS_PUBLIC_TOKEN              required on POST when exposed via a tunnel
+ *   VETOOS_PROTECT_READS=1           also require the token on GET /v1/*
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer } from "node:http";
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { writeFileSync, unlinkSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { verifyMessage } from "viem";
 import { HlAdapter } from "@vetoos/adapter-hl";
 import { AuditLog } from "@vetoos/audit";
-import { loadPolicy, type LoadedPolicy } from "@vetoos/risk";
-import { RiskBroker, READ_NETWORK, WRITE_NETWORK } from "@vetoos/demo-cli/broker";
-import { assertPolicyExists, loadConfig, type CliConfig } from "@vetoos/demo-cli/config";
-import { renderDashboard } from "./dashboard.js";
-import { renderOpenApi } from "./openapi.js";
-import { heuristicReport, llmReport, type AiRiskInputs } from "./ai-risk.js";
-
-const HUMAN_HEADER = "x-vetoos-human";
-const HUMAN_TOKEN = "I_AM_HUMAN";
+import { loadPolicy } from "@vetoos/risk";
+import { RiskBroker } from "@vetoos/demo-cli/broker";
+import { assertPolicyExists, loadConfig } from "@vetoos/demo-cli/config";
+import { createContext, handler, reconcileTick, RECONCILE_LOOP_MS } from "./app.js";
 
 /** Short git hash injected into the console so we can tell versions apart at a glance. */
 const BUILD = (() => {
   try {
-    return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] })
-      .toString()
-      .trim();
+    return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
   } catch {
     return "dev";
   }
 })();
 
-interface Context {
-  config: CliConfig;
-  policy: LoadedPolicy;
-  adapter: HlAdapter;
-  broker: RiskBroker;
-  tradeMarket: string;
-  startedAt: string;
-  accountCache: { at: number; data: unknown } | null;
-  marketCache: { at: number; data: unknown } | null;
-  aiRiskCache: { at: number; data: unknown } | null;
-}
-
-function json(res: ServerResponse, code: number, body: unknown): void {
-  const payload = JSON.stringify(body, null, 2);
-  res.writeHead(code, { "content-type": "application/json; charset=utf-8" });
-  res.end(payload);
-}
-
-async function readBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  const text = Buffer.concat(chunks).toString("utf8");
-  if (!text) return {};
-  return JSON.parse(text) as unknown;
-}
-
-/** Tail-read today's audit JSONL for the dashboard/feed. */
-function readFeed(ctx: Context, limit: number): unknown[] {
-  const day = new Date().toISOString().slice(0, 10);
-  const file = join(ctx.config.stateDir, `audit-${day}.jsonl`);
-  if (!existsSync(file)) return [];
-  const lines = readFileSync(file, "utf8").split("\n").filter((l) => l.trim().length > 0);
-  return lines.slice(-limit).map((l) => JSON.parse(l) as unknown);
-}
-
-async function liveAccount(ctx: Context): Promise<unknown> {
-  if (ctx.accountCache && Date.now() - ctx.accountCache.at < 2500) return ctx.accountCache.data;
-  const state = await ctx.adapter.getAccountState(WRITE_NETWORK);
-  const position = await ctx.adapter.getPositionSize(ctx.tradeMarket, WRITE_NETWORK);
-  const data = {
-    network: WRITE_NETWORK,
-    tradeMarket: ctx.tradeMarket,
-    equityUsd: state.equityUsd,
-    availableMarginUsd: state.availableMarginUsd,
-    positionSize: position,
-    positions: Object.fromEntries(state.positions),
-  };
-  ctx.accountCache = { at: Date.now(), data };
-  return data;
-}
-
-/** When set, all POST endpoints require this token (for tunnel exposure). */
-const PUBLIC_TOKEN = process.env.VETOOS_PUBLIC_TOKEN;
-
-async function route(ctx: Context, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const url = new URL(req.url ?? "/", "http://localhost");
-  const path = url.pathname;
-  const method = req.method ?? "GET";
-
-  if (PUBLIC_TOKEN && method === "POST" && req.headers["x-vetoos-token"] !== PUBLIC_TOKEN) {
-    json(res, 401, { error: "missing or invalid x-vetoos-token (service is exposed via a tunnel)" });
-    return;
-  }
-
-  if (method === "GET" && path === "/") {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-    res.end(renderDashboard(BUILD));
-    return;
-  }
-  if (method === "GET" && path === "/openapi.json") {
-    json(res, 200, renderOpenApi());
-    return;
-  }
-  if (method === "GET" && path === "/v1/status") {
-    json(res, 200, {
-      ...ctx.broker.status(),
-      tradeMarket: ctx.tradeMarket,
-      readNetwork: READ_NETWORK,
-      writeNetwork: WRITE_NETWORK,
-      startedAt: ctx.startedAt,
-    });
-    return;
-  }
-  if (method === "GET" && path === "/v1/account") {
-    json(res, 200, await liveAccount(ctx));
-    return;
-  }
-  if (method === "GET" && path === "/v1/policy") {
-    json(res, 200, {
-      policy: ctx.policy.policy,
-      contentHash: ctx.policy.contentHash,
-      path: ctx.policy.path,
-    });
-    return;
-  }
-  if (method === "GET" && path === "/v1/market") {
-    // Live HIP-3 mainnet context (the data that drives vetoes) + trade market.
-    if (ctx.marketCache && Date.now() - ctx.marketCache.at < 5000) {
-      json(res, 200, ctx.marketCache.data);
-      return;
-    }
-    const p = ctx.policy.policy;
-    const hipBuy = await ctx.adapter.getMarketSnapshot(p.default_market, "mainnet", "buy");
-    const hipSell = await ctx.adapter.getMarketSnapshot(p.default_market, "mainnet", "sell");
-    const trade = await ctx.adapter.getMarketContext(ctx.tradeMarket, "testnet");
-    const data = {
-      hip3: {
-        market: p.default_market,
-        assetId: hipBuy.assetId,
-        markPx: hipBuy.markPx,
-        funding: hipBuy.funding,
-        openInterest: hipBuy.openInterest,
-        depthBuy: hipBuy.depthWithinBand,
-        depthSell: hipSell.depthWithinBand,
-        szDecimals: hipBuy.szDecimals,
-      },
-      trade: { market: ctx.tradeMarket, markPx: trade.markPx, assetId: trade.assetId },
-    };
-    ctx.marketCache = { at: Date.now(), data };
-    json(res, 200, data);
-    return;
-  }
-  if (method === "GET" && path === "/v1/risk") {
-    const p = ctx.policy.policy;
-    const account = (await liveAccount(ctx)) as {
-      equityUsd: number;
-      availableMarginUsd: number;
-    };
-    const fomoUsed = Math.max(
-      ctx.broker.sameSideFillsLastHour(ctx.tradeMarket, "buy"),
-      ctx.broker.sameSideFillsLastHour(ctx.tradeMarket, "sell"),
-    );
-    const lastDeny = ctx.broker.lastDenyTs();
-    const cooldownRemainingS =
-      lastDeny === undefined
-        ? 0
-        : Math.max(0, Math.ceil((lastDeny + p.cooldown_seconds_after_deny * 1000 - Date.now()) / 1000));
-    const marginUsed = Math.max(0, account.equityUsd - account.availableMarginUsd);
-    const marginPct = account.equityUsd > 0 ? marginUsed / account.equityUsd : 0;
-    const dailyLossUsed = Math.max(0, -ctx.broker.dailyRealizedPnlUsd);
-
-    const alerts: { level: "crit" | "warn" | "info"; text: string }[] = [];
-    if (ctx.broker.frozen) {
-      alerts.push({ level: "crit", text: "BROKER FROZEN — reconciliation mismatch, human action required" });
-    }
-    if (cooldownRemainingS > 0) {
-      alerts.push({ level: "warn", text: `cool-down active — ${cooldownRemainingS}s remaining` });
-    }
-    if (fomoUsed >= p.max_same_side_adds_per_hour - 1 && p.max_same_side_adds_per_hour > 1) {
-      alerts.push({
-        level: fomoUsed >= p.max_same_side_adds_per_hour ? "crit" : "warn",
-        text: `FOMO same-side adds at ${fomoUsed}/${p.max_same_side_adds_per_hour} per hour`,
-      });
-    }
-    if (dailyLossUsed > 0.7 * p.max_daily_loss_usd) {
-      alerts.push({
-        level: dailyLossUsed >= p.max_daily_loss_usd ? "crit" : "warn",
-        text: `daily loss $${dailyLossUsed.toFixed(2)} of $${p.max_daily_loss_usd} breaker`,
-      });
-    }
-    if (marginPct > 0.7) {
-      alerts.push({ level: marginPct > 0.9 ? "crit" : "warn", text: `margin utilization ${(marginPct * 100).toFixed(0)}%` });
-    }
-
-    json(res, 200, {
-      gauges: {
-        fomo_adds: { used: fomoUsed, cap: p.max_same_side_adds_per_hour },
-        rate_per_min: { used: ctx.broker.submissionsLastMinute(), cap: p.max_orders_per_minute },
-        daily_loss: { used: dailyLossUsed, cap: p.max_daily_loss_usd },
-        margin_use: { used: marginUsed, cap: account.equityUsd, pct: marginPct },
-        cooldown: { remainingS: cooldownRemainingS, capS: p.cooldown_seconds_after_deny },
-        notional_cap: { cap: p.max_order_notional_usd },
-      },
-      alerts,
-    });
-    return;
-  }
-  if (method === "GET" && path === "/v1/execution") {
-    // Testnet execution side: real position detail + recent venue fills.
-    const [position, fills] = await Promise.all([
-      ctx.adapter.getPositionDetail(ctx.tradeMarket, WRITE_NETWORK).catch(() => null),
-      ctx.adapter.getRecentFills(WRITE_NETWORK, 6).catch(() => []),
-    ]);
-    json(res, 200, { market: ctx.tradeMarket, position, fills });
-    return;
-  }
-  if (method === "GET" && path === "/v1/stats") {
-    // Decision statistics from today's audit log — the dashboard's track record.
-    const events = readFeed(ctx, 500) as {
-      type: string;
-      data?: { decision?: string; code?: string };
-    }[];
-    let allow = 0;
-    let deny = 0;
-    let freeze = 0;
-    let fills = 0;
-    const byCode: Record<string, number> = {};
-    for (const ev of events) {
-      if (ev.type === "decision") {
-        if (ev.data?.decision === "allow") allow++;
-        else {
-          deny++;
-          const code = ev.data?.code ?? "INVALID";
-          byCode[code] = (byCode[code] ?? 0) + 1;
-        }
-      } else if (ev.type === "freeze") freeze++;
-      else if (ev.type === "order_placed") fills++;
-    }
-    json(res, 200, { allow, deny, freeze, fills, byCode });
-    return;
-  }
-  if (method === "GET" && path === "/v1/counterfactual") {
-    // "Without the gate": replay denied intents as if they had filled at the
-    // deny-time mark, and value them at the CURRENT mainnet mark.
-    const events = readFeed(ctx, 500) as {
-      ts: string;
-      type: string;
-      data?: {
-        decision?: string;
-        code?: string;
-        duplicate?: boolean;
-        snapshot?: { market?: string; side?: "buy" | "sell"; size?: string; mark_px?: number; notional_usd?: number };
-      };
-    }[];
-    const denied = events.filter(
-      (ev) =>
-        ev.type === "decision" &&
-        ev.data?.decision === "deny" &&
-        !ev.data.duplicate &&
-        ev.data.snapshot?.market &&
-        ev.data.snapshot.size &&
-        ev.data.snapshot.mark_px,
-    );
-    const marks = new Map<string, number>();
-    const rows: {
-      ts: string;
-      market: string;
-      side: string;
-      size: number;
-      entryPx: number;
-      nowPx: number;
-      pnl: number;
-      code: string;
-    }[] = [];
-    for (const ev of denied.slice(-12)) {
-      const s = ev.data!.snapshot!;
-      const market = s.market!;
-      if (!marks.has(market)) {
-        try {
-          const mctx = await ctx.adapter.getMarketContext(market, READ_NETWORK);
-          marks.set(market, mctx.markPx);
-        } catch {
-          continue;
-        }
-      }
-      const nowPx = marks.get(market)!;
-      const size = Number(s.size);
-      const entryPx = Number(s.mark_px);
-      const sign = s.side === "sell" ? -1 : 1;
-      rows.push({
-        ts: ev.ts,
-        market,
-        side: s.side ?? "buy",
-        size,
-        entryPx,
-        nowPx,
-        pnl: sign * size * (nowPx - entryPx),
-        code: ev.data!.code ?? "DENY",
-      });
-    }
-    const avoidedLoss = rows.reduce((acc, r) => acc + Math.max(0, -r.pnl), 0);
-    const missedGain = rows.reduce((acc, r) => acc + Math.max(0, r.pnl), 0);
-    const grossNotional = rows.reduce((acc, r) => acc + r.size * r.entryPx, 0);
-    const account = (await liveAccount(ctx)) as { equityUsd: number };
-    const worstLeverage = account.equityUsd > 0 ? grossNotional / account.equityUsd : 0;
-    json(res, 200, {
-      rows,
-      avoidedLoss,
-      missedGain,
-      grossNotional,
-      equityUsd: account.equityUsd,
-      worstLeverage,
-    });
-    return;
-  }
-  if (method === "GET" && path === "/v1/ai-risk") {
-    // Advisory AI/heuristic risk score over deterministic counters (30s cache).
-    if (ctx.aiRiskCache && Date.now() - ctx.aiRiskCache.at < 30_000) {
-      json(res, 200, ctx.aiRiskCache.data);
-      return;
-    }
-    const p = ctx.policy.policy;
-    const account = (await liveAccount(ctx)) as { equityUsd: number; availableMarginUsd: number };
-    const fomoUsed = Math.max(
-      ctx.broker.sameSideFillsLastHour(ctx.tradeMarket, "buy"),
-      ctx.broker.sameSideFillsLastHour(ctx.tradeMarket, "sell"),
-    );
-    const lastDeny = ctx.broker.lastDenyTs();
-    const cooldownRemainingS =
-      lastDeny === undefined
-        ? 0
-        : Math.max(0, Math.ceil((lastDeny + p.cooldown_seconds_after_deny * 1000 - Date.now()) / 1000));
-    const marginUsed = Math.max(0, account.equityUsd - account.availableMarginUsd);
-    const marginPct = account.equityUsd > 0 ? marginUsed / account.equityUsd : 0;
-    const deniesLastHour = ctx.broker.deniesLastHour();
-    // worst-side book utilization for a max-size order on the trade market
-    let liquidityUtilPct = 0;
+/**
+ * Single-writer lock for the state directory (P1-12). The CLI reads this to
+ * route mutating commands through HTTP instead of rewriting state files
+ * underneath a running daemon.
+ */
+function writeLock(stateDir: string, url: string): () => void {
+  const lockPath = join(stateDir, "brokerd.lock");
+  if (existsSync(lockPath)) {
     try {
-      const snap = await ctx.adapter.getMarketSnapshot(ctx.tradeMarket, WRITE_NETWORK, "buy");
-      const maxSize = p.max_order_notional_usd / snap.markPx;
-      const required = maxSize * p.min_book_depth_multiple;
-      liquidityUtilPct = snap.depthWithinBand > 0 ? Math.min(100, (required / snap.depthWithinBand) * 100) : 100;
+      const prev = JSON.parse(readFileSync(lockPath, "utf8")) as { pid: number };
+      process.kill(prev.pid, 0); // throws if the pid is gone
+      throw new Error(`another brokerd (pid ${prev.pid}) owns ${stateDir} — stop it first`);
+    } catch (err) {
+      if (err instanceof Error && /another brokerd/.test(err.message)) throw err;
+      // stale lock from a crashed process — take over
+    }
+  }
+  writeFileSync(lockPath, JSON.stringify({ pid: process.pid, url, startedAt: new Date().toISOString() }), "utf8");
+  const release = (): void => {
+    try {
+      unlinkSync(lockPath);
     } catch {
-      liquidityUtilPct = 50;
+      /* already gone */
     }
-    const inputs: AiRiskInputs = {
-      frozen: ctx.broker.frozen,
-      fomoUsed,
-      fomoCap: p.max_same_side_adds_per_hour,
-      rateUsed: ctx.broker.submissionsLastMinute(),
-      rateCap: p.max_orders_per_minute,
-      dailyLossUsed: Math.max(0, -ctx.broker.dailyRealizedPnlUsd),
-      dailyLossCap: p.max_daily_loss_usd,
-      marginPct,
-      cooldownRemainingS,
-      deniesLastHour,
-      liquidityUtilPct,
-      equityUsd: account.equityUsd,
-      tradeMarket: ctx.tradeMarket,
-    };
-    const report = (await llmReport(inputs)) ?? heuristicReport(inputs);
-    ctx.aiRiskCache = { at: Date.now(), data: report };
-    json(res, 200, report);
-    return;
-  }
-  if (method === "GET" && path === "/v1/feed") {
-    const n = Math.min(Number(url.searchParams.get("n") ?? 50) || 50, 500);
-    json(res, 200, { events: readFeed(ctx, n) });
-    return;
-  }
-  if (method === "POST" && path === "/v1/intents") {
-    const body = await readBody(req);
-    const result = await ctx.broker.submitIntent(body);
-    if (result.validationError) {
-      json(res, 400, result);
-    } else {
-      json(res, result.decision?.decision === "allow" ? 200 : 422, result);
-    }
-    return;
-  }
-  if (method === "POST" && path === "/v1/demo/tamper") {
-    // DEMO ONLY (localhost): inject a fill that never happened, then reconcile.
-    // This is what makes the freeze provable live from the console.
-    const market = ctx.tradeMarket;
-    const marketCtx = await ctx.adapter.getMarketContext(market, WRITE_NETWORK);
-    ctx.broker.ledger.injectTamperedFill({
-      intentId: crypto.randomUUID(),
-      market,
-      side: "buy",
-      size: 100 * Math.pow(10, -marketCtx.szDecimals),
-      avgPx: marketCtx.markPx,
-      oid: Date.now(),
-      ts: Date.now(),
-      szDecimals: marketCtx.szDecimals,
+  };
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => {
+      release();
+      process.exit(0);
     });
-    const result = await ctx.broker.reconcileNow(market);
-    json(res, 200, { tampered: true, reconcile: result, frozen: ctx.broker.frozen });
-    return;
   }
-  if (method === "POST" && path === "/v1/unfreeze") {
-    // Path A: wallet-signed proof of humanity (EIP-191 personal_sign).
-    // The signer must be the operator account the broker trades for.
-    const body = (await readBody(req).catch(() => ({}))) as {
-      address?: string;
-      message?: string;
-      signature?: `0x${string}`;
-    };
-    if (body.address && body.message && body.signature) {
-      const fresh = Date.now() - Date.parse(body.message.replace("VetoOS human unfreeze\n", "")) < 120_000;
-      let valid = false;
-      try {
-        valid =
-          fresh &&
-          body.address.toLowerCase() === (ctx.config.accountAddress ?? "").toLowerCase() &&
-          (await verifyMessage({
-            address: body.address as `0x${string}`,
-            message: body.message,
-            signature: body.signature,
-          }));
-      } catch {
-        valid = false;
-      }
-      if (!valid) {
-        json(res, 403, { error: "wallet signature invalid, stale, or not the operator account" });
-        return;
-      }
-      ctx.broker.unfreeze(HUMAN_TOKEN);
-      json(res, 200, { frozen: ctx.broker.frozen, via: "wallet-signature" });
-      return;
-    }
-    // Path B: local human header (CLI / judges without a wallet).
-    if (req.headers[HUMAN_HEADER] !== HUMAN_TOKEN) {
-      json(res, 403, {
-        error: `unfreeze requires a wallet signature (operator account) or header ${HUMAN_HEADER}: ${HUMAN_TOKEN}`,
-      });
-      return;
-    }
-    ctx.broker.unfreeze(HUMAN_TOKEN);
-    json(res, 200, { frozen: ctx.broker.frozen, via: "local-token" });
-    return;
-  }
-  json(res, 404, { error: `no route: ${method} ${path}` });
+  process.on("exit", release);
+  return release;
 }
 
 async function main(): Promise<void> {
@@ -462,6 +80,7 @@ async function main(): Promise<void> {
   const adapter = new HlAdapter(config);
   const audit = new AuditLog(config.stateDir, policy.contentHash);
   const broker = new RiskBroker(policy, adapter, audit, config.stateDir);
+
   // Fail closed on missing real market data — but give transient venue
   // rate limits a chance to pass first (startup is the critical path).
   for (let attempt = 1; ; attempt++) {
@@ -472,8 +91,7 @@ async function main(): Promise<void> {
       if (attempt >= 6) throw err;
       const waitMs = Math.min(2000 * Math.pow(2, attempt - 1), 20_000);
       console.log(
-        `[startup] init failed (${err instanceof Error ? err.message : String(err)}), ` +
-          `retry ${attempt}/5 in ${waitMs / 1000}s…`,
+        `[startup] init failed (${err instanceof Error ? err.message : String(err)}), retry ${attempt}/5 in ${waitMs / 1000}s…`,
       );
       await new Promise((r) => setTimeout(r, waitMs));
     }
@@ -487,29 +105,45 @@ async function main(): Promise<void> {
       .then(() => policy.policy.default_market)
       .catch(() => "BTC"));
 
-  const ctx: Context = {
+  const port = Number(process.env.VETOOS_PORT ?? 4399); // 4310 collides with common apps
+  const host = process.env.VETOOS_HOST ?? "127.0.0.1";
+  const publicToken = process.env.VETOOS_PUBLIC_TOKEN || undefined;
+  if (host !== "127.0.0.1" && host !== "localhost" && !publicToken) {
+    throw new Error(`refusing to bind ${host} without VETOOS_PUBLIC_TOKEN — the write path would be open`);
+  }
+
+  const ctx = createContext({
     config,
     policy,
     adapter,
     broker,
+    audit,
     tradeMarket,
-    startedAt: new Date().toISOString(),
-    accountCache: null,
-    marketCache: null,
-    aiRiskCache: null,
-  };
-
-  const port = Number(process.env.VETOOS_PORT ?? 4399); // 4310 collides with common apps
-  const host = process.env.VETOOS_HOST ?? "127.0.0.1";
-  const server = createServer((req, res) => {
-    route(ctx, req, res).catch((err: unknown) => {
-      json(res, 500, { error: String(err instanceof Error ? err.message : err) });
-    });
+    options: {
+      build: BUILD,
+      ...(publicToken ? { publicToken } : {}),
+      protectReads: process.env.VETOOS_PROTECT_READS === "1",
+    },
   });
+
+  writeLock(config.stateDir, `http://${host}:${port}`);
+
+  // Session baseline + background truth loop.
+  await reconcileTick(ctx).catch((err: unknown) =>
+    console.log(`[truth] initial baseline failed: ${err instanceof Error ? err.message : String(err)}`),
+  );
+  setInterval(() => {
+    reconcileTick(ctx).catch(() => undefined);
+  }, RECONCILE_LOOP_MS).unref();
+
+  const server = createServer(handler(ctx));
   server.listen(port, host, () => {
-    console.log(`[brokerd] VetoOS broker listening on http://${host}:${port}`);
+    console.log(`[brokerd] VetoOS broker listening on http://${host}:${port}  (build ${BUILD})`);
     console.log(`[brokerd] dashboard → http://${host}:${port}/  ·  API → /v1/*  ·  OpenAPI → /openapi.json`);
-    console.log(`[brokerd] policy ${policy.contentHash.slice(0, 12)}… · trade market ${tradeMarket} · frozen=${broker.frozen}`);
+    console.log(
+      `[brokerd] policy ${policy.contentHash.slice(0, 12)}… · trade market ${tradeMarket} · frozen=${broker.frozen}` +
+        (publicToken ? ` · write-guard ON${ctx.options.protectReads ? " (+reads)" : ""}` : ""),
+    );
   });
 }
 

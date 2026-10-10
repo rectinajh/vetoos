@@ -110,10 +110,18 @@ export class HlAdapter {
     return network === "mainnet" ? this.mainnetInfo : this.testnetInfo;
   }
 
+  /** perpDexs() changes rarely; cache per network to spare the venue rate limit. */
+  private readonly dexNamesCache = new Map<Network, { at: number; names: (string | null)[] }>();
+  private static readonly DEX_NAMES_TTL_MS = 60_000;
+
   /** Dex names in perpDexs() order; null = main dex. Index = perp dex index. */
   async listPerpDexNames(network: Network): Promise<(string | null)[]> {
+    const cached = this.dexNamesCache.get(network);
+    if (cached && Date.now() - cached.at < HlAdapter.DEX_NAMES_TTL_MS) return cached.names;
     const dexs = await withBackoff(() => this.info(network).perpDexs());
-    return dexs.map((d) => (d === null ? null : d.name));
+    const names = dexs.map((d) => (d === null ? null : d.name));
+    this.dexNamesCache.set(network, { at: Date.now(), names });
+    return names;
   }
 
   async findPerpDexIndex(dexName: string | null, network: Network): Promise<number> {

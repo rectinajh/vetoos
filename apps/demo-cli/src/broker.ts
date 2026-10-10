@@ -271,6 +271,11 @@ export class RiskBroker {
     const snapshot = await this.adapter.getMarketSnapshot(intent.market, READ_NETWORK, intent.side);
     const account = await this.adapter.getAccountState(WRITE_NETWORK);
     await this.refreshDailyPnl();
+    // Read and write networks can quote different marks. Caps (notional,
+    // leverage, margin) are evaluated at the HIGHER of the two so a cheaper
+    // read-side mark can never let a larger-than-allowed order through.
+    const execMark = await this.executionMark(intent.market);
+    const evalMark = Math.max(snapshot.markPx, execMark ?? 0);
     // Venue position keys may be "BTC" or "xyz:XYZ100" — match both forms.
     const parsed = parseMarket(intent.market);
     let positionSize = 0;
@@ -286,7 +291,7 @@ export class RiskBroker {
       freezeReason: this.state.freezeReason,
       market: {
         market: intent.market,
-        markPx: snapshot.markPx,
+        markPx: evalMark,
         funding: snapshot.funding,
         openInterest: snapshot.openInterest,
         depthWithinBand: snapshot.depthWithinBand,
@@ -296,7 +301,7 @@ export class RiskBroker {
         equityUsd: account.equityUsd,
         availableMarginUsd: account.availableMarginUsd,
         dailyRealizedPnlUsd: this.state.dailyRealizedPnlUsd,
-        currentPositionNotionalUsd: Math.abs(positionSize) * snapshot.markPx,
+        currentPositionNotionalUsd: Math.abs(positionSize) * evalMark,
         currentPositionSize: positionSize,
       },
       history: this.state.history,
@@ -304,6 +309,8 @@ export class RiskBroker {
 
     // 3. Deterministic evaluation — the model never gets a vote here.
     const decision = evaluateIntent(intent, this.policy.policy, ctx);
+    decision.snapshot["mark_px_read"] = snapshot.markPx;
+    decision.snapshot["mark_px_write"] = execMark;
     this.audit.recordAndSay(
       "decision",
       { intent_id: intent.id, ...decision },
@@ -414,6 +421,17 @@ export class RiskBroker {
     this.recordProcessed(intent.id, { decision, placed, reconcileOk: reconcile.ok, ts: now });
     this.saveState();
     return { decision, placed, reconcile };
+  }
+
+  /** Mark on the execution (write) network; null when unavailable or same network. */
+  private async executionMark(market: string): Promise<number | null> {
+    if (READ_NETWORK === (WRITE_NETWORK as Network)) return null;
+    try {
+      const ctx = await this.adapter.getMarketContext(market, WRITE_NETWORK);
+      return ctx.markPx;
+    } catch {
+      return null; // caps then fall back to the read-side mark (still real data)
+    }
   }
 
   private recordProcessed(intentId: string, rec: ProcessedRecord): void {

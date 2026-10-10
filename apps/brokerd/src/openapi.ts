@@ -8,14 +8,45 @@ export function renderOpenApi(): Record<string, unknown> {
       version: "0.1.0",
       description:
         "The single signing exit between strategies/AI and Hyperliquid. " +
-        "Proposers submit Intent IR; the deterministic engine decides; the venue is the truth.",
+        "Proposers submit Intent IR; the deterministic engine decides; the venue is the truth. " +
+        "When VETOOS_PUBLIC_TOKEN is set, POST requests (and GET /v1/* if VETOOS_PROTECT_READS=1) " +
+        "require header x-vetoos-token.",
+    },
+    components: {
+      securitySchemes: {
+        writeToken: { type: "apiKey", in: "header", name: "x-vetoos-token" },
+      },
     },
     paths: {
       "/v1/status": {
         get: {
-          summary: "Broker state snapshot (frozen flag, policy hash, counters)",
+          summary: "Broker state snapshot (frozen flag, policy hash, audit chain, last reconcile)",
           responses: { "200": { description: "Status object" } },
         },
+      },
+      "/v1/audit/verify": {
+        get: {
+          summary: "Verify today's hash-chained audit log (seq + prev_hash + sha256)",
+          responses: { "200": { description: "{ ok, length, brokenAt?, reason? }" } },
+        },
+      },
+      "/v1/market": {
+        get: { summary: "Live HIP-3 read-network context + trade-market mark", responses: { "200": { description: "Market object" } } },
+      },
+      "/v1/risk": {
+        get: { summary: "Gauge utilization + active alerts", responses: { "200": { description: "Risk object" } } },
+      },
+      "/v1/execution": {
+        get: { summary: "Write-network position detail + recent venue fills (30s cache)", responses: { "200": { description: "Execution object" } } },
+      },
+      "/v1/stats": {
+        get: { summary: "Decision counters from today's audit log", responses: { "200": { description: "Stats object" } } },
+      },
+      "/v1/counterfactual": {
+        get: { summary: "Denied intents marked to market — loss the gate blocked", responses: { "200": { description: "Counterfactual object" } } },
+      },
+      "/v1/ai-risk": {
+        get: { summary: "Advisory AI/heuristic risk score over deterministic counters (never decides)", responses: { "200": { description: "Report" } } },
       },
       "/v1/account": {
         get: {
@@ -67,25 +98,44 @@ export function renderOpenApi(): Record<string, unknown> {
           },
           responses: {
             "200": { description: "Allowed and executed (result includes fill + reconciliation)" },
-            "400": { description: "Invalid intent (schema or forbidden policy-override fields)" },
+            "400": { description: "Invalid intent (schema or forbidden policy-override fields) or malformed JSON" },
+            "401": { description: "Missing/invalid x-vetoos-token (write-guard enabled)" },
+            "413": { description: "Body larger than 64 KiB" },
             "422": { description: "Denied by a deterministic rule (see code + bilingual message)" },
+            "502": { description: "Allowed but the venue write failed — intent id is burned, never retried" },
           },
         },
       },
       "/v1/unfreeze": {
         post: {
-          summary: "Human-only unfreeze after a reconciliation freeze",
+          summary: "Human-only unfreeze after a reconciliation freeze (header or operator wallet signature)",
           parameters: [
             {
               name: "x-vetoos-human",
               in: "header",
-              required: true,
+              required: false,
               schema: { type: "string", const: "I_AM_HUMAN" },
             },
           ],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  description: "EIP-191 personal_sign proof by the operator account (alternative to the header)",
+                  properties: {
+                    address: { type: "string" },
+                    message: { type: "string", example: "VetoOS human unfreeze\\n2026-10-10T12:00:00.000Z" },
+                    signature: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
           responses: {
-            "200": { description: "Broker unfrozen" },
-            "403": { description: "Missing/invalid human token" },
+            "200": { description: "Broker unfrozen; session baseline reset" },
+            "403": { description: "Missing/invalid human proof" },
           },
         },
       },
