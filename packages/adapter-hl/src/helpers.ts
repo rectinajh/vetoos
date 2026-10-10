@@ -78,6 +78,33 @@ export function toSigFigs(value: number, sigFigs = 5): string {
   return Number(value.toPrecision(sigFigs)).toString();
 }
 
+/**
+ * Hyperliquid perp price rule: at most 5 significant figures AND at most
+ * `MAX_PERP_PX_DECIMALS - szDecimals` decimal places (integers always OK).
+ * Everything the broker sends — including a user-supplied limit_px — goes
+ * through here, so a sloppy price can never bounce at the venue.
+ */
+export const MAX_PERP_PX_DECIMALS = 6;
+export function roundPrice(value: number, szDecimals: number): string {
+  if (!(value > 0)) throw new Error(`price must be positive, got ${value}`);
+  const sig = Number(value.toPrecision(5));
+  const decimals = Math.max(0, MAX_PERP_PX_DECIMALS - Math.max(0, Math.floor(szDecimals)));
+  return Number(sig.toFixed(decimals)).toString();
+}
+
+/**
+ * Derive the venue client-order-id (16-byte hex) from an Intent IR id (UUID).
+ * One intent → one cloid; a retry carries the same cloid, so the venue sees
+ * the duplicate even if our own in-flight map somehow missed it.
+ */
+export function intentIdToCloid(intentId: string): `0x${string}` {
+  const hex = intentId.replace(/-/g, "").toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(hex)) {
+    throw new Error(`intent id must be a UUID to derive a cloid, got ${intentId}`);
+  }
+  return `0x${hex}`;
+}
+
 /** Round a base-asset size down to the market's lot size. */
 export function roundSize(size: number, szDecimals: number): string {
   const factor = Math.pow(10, szDecimals);
@@ -90,10 +117,11 @@ export function aggressiveLimitPx(
   side: "buy" | "sell",
   markPx: number,
   slippageBps = 500,
+  szDecimals?: number,
 ): string {
   const band = slippageBps / 10_000;
   const px = side === "buy" ? markPx * (1 + band) : markPx * (1 - band);
-  return toSigFigs(px);
+  return szDecimals === undefined ? toSigFigs(px) : roundPrice(px, szDecimals);
 }
 
 /** True for venue/transport errors worth retrying (rate limits, 5xx, network). */

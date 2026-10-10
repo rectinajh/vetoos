@@ -6,7 +6,13 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { HlAdapter, parseMarket, type Network, type PlacedOrder } from "@vetoos/adapter-hl";
+import {
+  HlAdapter,
+  intentIdToCloid,
+  parseMarket,
+  type Network,
+  type PlacedOrder,
+} from "@vetoos/adapter-hl";
 import { AuditLog } from "@vetoos/audit";
 import { validateIntent, type Intent } from "@vetoos/intent";
 import {
@@ -31,8 +37,13 @@ interface ProcessedRecord {
   decision: Decision;
   placed?: PlacedOrder;
   reconcileOk?: boolean;
+  /** Set when the write path threw — outcome at the venue is unknown, never retried. */
+  error?: string;
   ts: number;
 }
+
+/** How long a venue-sourced daily PnL figure is trusted before re-reading. */
+const DAILY_PNL_TTL_MS = 10_000;
 
 interface BrokerState {
   frozen: boolean;
@@ -53,6 +64,8 @@ export interface SubmitResult {
   reconcile?: ReconcileResult;
   /** True when this intent id was already processed — returned from cache. */
   duplicate?: boolean;
+  /** Write-path failure after an allow; the intent is burned, not retried. */
+  error?: string;
 }
 
 const MAX_PROCESSED = 500;
@@ -60,6 +73,9 @@ const MAX_PROCESSED = 500;
 export class RiskBroker {
   private readonly statePath: string;
   private state: BrokerState;
+  /** Intent ids currently being processed → shared promise (concurrent dedupe). */
+  private readonly inFlight = new Map<string, Promise<SubmitResult>>();
+  private dailyPnlRefreshedAt = 0;
 
   constructor(
     private readonly policy: LoadedPolicy,
@@ -107,6 +123,7 @@ export class RiskBroker {
   async init(): Promise<void> {
     const market = this.policy.policy.default_market;
     const ctx = await this.adapter.getMarketContext(market, READ_NETWORK);
+    await this.refreshDailyPnl(true);
     this.audit.recordAndSay(
       "startup",
       {
@@ -174,6 +191,35 @@ export class RiskBroker {
     return this.state.dailyRealizedPnlUsd;
   }
 
+  /**
+   * Daily-loss breaker input, sourced from the VENUE (userFills closedPnl −
+   * fees since 00:00 UTC). Cached briefly; `force` bypasses the TTL. A read
+   * failure keeps the last-known figure and is written to the audit log —
+   * the breaker degrades to "stale" rather than silently resetting to zero.
+   */
+  async refreshDailyPnl(force = false): Promise<number> {
+    const now = Date.now();
+    if (!force && now - this.dailyPnlRefreshedAt < DAILY_PNL_TTL_MS) {
+      return this.state.dailyRealizedPnlUsd;
+    }
+    const today = new Date(now).toISOString().slice(0, 10);
+    const dayStartMs = Date.parse(`${today}T00:00:00.000Z`);
+    try {
+      const pnl = await this.adapter.getRealizedPnlSince(WRITE_NETWORK, dayStartMs);
+      this.state.dailyRealizedPnlUsd = pnl;
+      this.state.day = today;
+      this.dailyPnlRefreshedAt = now;
+      this.saveState();
+    } catch (err) {
+      this.audit.record("error", {
+        where: "refreshDailyPnl",
+        error: err instanceof Error ? err.message : String(err),
+        lastKnown: this.state.dailyRealizedPnlUsd,
+      });
+    }
+    return this.state.dailyRealizedPnlUsd;
+  }
+
   async submitIntent(raw: unknown): Promise<SubmitResult> {
     // 1. Intent IR validation — tampering attempts die here.
     const validation = validateIntent(raw);
@@ -199,10 +245,24 @@ export class RiskBroker {
       return {
         decision: seen.decision,
         ...(seen.placed ? { placed: seen.placed } : {}),
+        ...(seen.error ? { error: seen.error } : {}),
         duplicate: true,
       };
     }
 
+    // Concurrent duplicates: two submissions of the same id racing through
+    // the async venue reads must share ONE evaluation and ONE order.
+    const running = this.inFlight.get(intent.id);
+    if (running) {
+      this.audit.record("decision", { intent_id: intent.id, duplicate: true, concurrent: true });
+      return running.then((r) => ({ ...r, duplicate: true }));
+    }
+    const task = this.processIntent(intent).finally(() => this.inFlight.delete(intent.id));
+    this.inFlight.set(intent.id, task);
+    return task;
+  }
+
+  private async processIntent(intent: Intent): Promise<SubmitResult> {
     const now = Date.now();
     this.pushHistory({ ts: now, market: intent.market, side: intent.side, kind: "intent" });
     this.audit.record("intent_received", { intent });
@@ -210,6 +270,7 @@ export class RiskBroker {
     // 2. Gather REAL inputs for the deterministic engine.
     const snapshot = await this.adapter.getMarketSnapshot(intent.market, READ_NETWORK, intent.side);
     const account = await this.adapter.getAccountState(WRITE_NETWORK);
+    await this.refreshDailyPnl();
     // Venue position keys may be "BTC" or "xyz:XYZ100" — match both forms.
     const parsed = parseMarket(intent.market);
     let positionSize = 0;
@@ -236,6 +297,7 @@ export class RiskBroker {
         availableMarginUsd: account.availableMarginUsd,
         dailyRealizedPnlUsd: this.state.dailyRealizedPnlUsd,
         currentPositionNotionalUsd: Math.abs(positionSize) * snapshot.markPx,
+        currentPositionSize: positionSize,
       },
       history: this.state.history,
     };
@@ -256,13 +318,52 @@ export class RiskBroker {
 
     // 4. Allowed → real testnet fill, wrapped by position snapshots.
     const positionBefore = await this.adapter.getPositionSize(intent.market, WRITE_NETWORK);
-    const placed = await this.adapter.placeOrder({
-      market: intent.market,
-      side: intent.side,
-      size: Number(intent.size),
-      ...(intent.limit_px !== undefined ? { limitPx: intent.limit_px } : {}),
-      reduceOnly: intent.reduce_only,
-    });
+
+    // 4a. Last look before signing: a reconcile/tamper on another request may
+    // have frozen the broker while we were awaiting venue reads. The freeze
+    // rule runs first in the engine, so re-evaluating yields a FROZEN deny.
+    if (this.state.frozen) {
+      const late = evaluateIntent(intent, this.policy.policy, {
+        ...ctx,
+        now: Date.now(),
+        frozen: true,
+        freezeReason: this.state.freezeReason,
+      });
+      this.audit.recordAndSay(
+        "decision",
+        { intent_id: intent.id, late_freeze_check: true, ...late },
+        `[deny] 签名前复查：已冻结 / frozen between evaluation and signing — order not sent`,
+      );
+      this.pushHistory({ ts: Date.now(), market: intent.market, side: intent.side, kind: "deny" });
+      this.recordProcessed(intent.id, { decision: late, ts: now });
+      this.saveState();
+      return { decision: late };
+    }
+
+    let placed: PlacedOrder;
+    try {
+      placed = await this.adapter.placeOrder({
+        market: intent.market,
+        side: intent.side,
+        size: Number(intent.size),
+        ...(intent.limit_px !== undefined ? { limitPx: intent.limit_px } : {}),
+        reduceOnly: intent.reduce_only,
+        cloid: intentIdToCloid(intent.id),
+      });
+    } catch (err) {
+      // Write failed (or timed out — outcome unknown). The intent id is
+      // burned: a retry returns this record instead of re-sending, and the
+      // next reconciliation window settles what really happened.
+      const message = err instanceof Error ? err.message : String(err);
+      this.audit.recordAndSay(
+        "error",
+        { where: "placeOrder", intent_id: intent.id, error: message },
+        `[error] 下单失败，意图作废不重试 / order write failed, intent burned: ${message}`,
+      );
+      this.recordProcessed(intent.id, { decision, error: message, ts: now });
+      this.saveState();
+      return { decision, error: message };
+    }
     if (placed.filledSize > 0) {
       // Only REAL fills count — a resting/unfilled order must never feed
       // the FOMO counter or the ledger.
@@ -292,6 +393,9 @@ export class RiskBroker {
         szDecimals: snapshot.szDecimals,
       };
       this.ledger.append(fill);
+      // A fill can realise PnL (closing/flipping) — pull the venue figure now
+      // so the very next intent sees an up-to-date daily-loss breaker.
+      await this.refreshDailyPnl(true);
     }
 
     // 5. Fill Truth: the venue, not the ledger, decides what happened.

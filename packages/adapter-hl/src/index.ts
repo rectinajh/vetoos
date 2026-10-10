@@ -14,6 +14,7 @@ import {
   computeHip3AssetId,
   depthWithinBand,
   parseMarket,
+  roundPrice,
   roundSize,
   withBackoff,
   type BookLevels,
@@ -66,6 +67,8 @@ export interface PlaceOrderParams {
   limitPx?: string;
   reduceOnly?: boolean;
   tif?: "Gtc" | "Ioc" | "Alo";
+  /** Client order id (16-byte hex). The broker derives it from the intent id. */
+  cloid?: `0x${string}`;
 }
 
 export interface PlacedOrder {
@@ -276,6 +279,40 @@ export class HlAdapter {
   }
 
   /**
+   * Net realized PnL (closedPnl − fees) over venue fills since `sinceMs`.
+   * This is the venue's own number — the daily-loss breaker never trusts a
+   * locally accumulated figure.
+   */
+  async getRealizedPnlSince(network: Network, sinceMs: number): Promise<number> {
+    const fills = await withBackoff(() =>
+      this.info(network).userFills({ user: this.accountAddress() as `0x${string}` }),
+    );
+    let pnl = 0;
+    for (const f of fills) {
+      if (Number(f.time) < sinceMs) continue;
+      pnl += Number(f.closedPnl ?? 0) - Number(f.fee ?? 0);
+    }
+    return pnl;
+  }
+
+  /** Resting (open) orders for the account — anything here escaped the fill-or-kill path. */
+  async getOpenOrders(
+    network: Network,
+  ): Promise<{ coin: string; side: string; size: number; px: number; oid: number; ts: number }[]> {
+    const orders = await withBackoff(() =>
+      this.info(network).openOrders({ user: this.accountAddress() as `0x${string}` }),
+    );
+    return orders.map((o) => ({
+      coin: o.coin,
+      side: o.side,
+      size: Number(o.sz),
+      px: Number(o.limitPx),
+      oid: Number(o.oid),
+      ts: Number(o.timestamp),
+    }));
+  }
+
+  /**
    * Place a real order on testnet. Only callable with a configured key —
    * and in this codebase, only the Risk Broker ever calls it.
    */
@@ -286,9 +323,12 @@ export class HlAdapter {
     const network: Network = "testnet";
     const ctx = await this.getMarketContext(params.market, network);
     const markPx = ctx.markPx;
+    // Every price — including a caller-supplied limit — is normalised to the
+    // venue's 5-sig-fig / (6 − szDecimals) rule so nothing bounces at the door.
     const px =
-      params.limitPx ??
-      aggressiveLimitPx(params.side, markPx);
+      params.limitPx !== undefined
+        ? roundPrice(Number(params.limitPx), ctx.szDecimals)
+        : aggressiveLimitPx(params.side, markPx, 500, ctx.szDecimals);
     const sz = roundSize(params.size, ctx.szDecimals);
     const builder =
       this.config.builderAddress && this.config.builderFeeTenthsBps !== undefined
@@ -304,6 +344,7 @@ export class HlAdapter {
           s: sz,
           r: params.reduceOnly ?? false,
           t: { limit: { tif: params.tif ?? "Ioc" } },
+          ...(params.cloid ? { c: params.cloid } : {}),
         },
       ],
       grouping: "na",

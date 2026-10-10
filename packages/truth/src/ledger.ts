@@ -4,7 +4,7 @@
  * demo can prove that reconciliation catches a lying ledger.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { FillRecord } from "./index.js";
 
@@ -32,9 +32,11 @@ export class LedgerStore {
     return this.list().filter((f) => f.ts >= ts);
   }
 
+  /** Archive the current ledger (append-only history is kept) and start empty. */
   clear(): void {
     if (existsSync(this.filePath)) {
       appendFileSync(this.filePath + ".archive", readFileSync(this.filePath));
+      writeFileSync(this.filePath, "", "utf8");
     }
   }
 

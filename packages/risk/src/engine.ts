@@ -78,6 +78,12 @@ export interface AccountSnapshot {
   dailyRealizedPnlUsd: number;
   /** Absolute current position notional in the target market. */
   currentPositionNotionalUsd: number;
+  /**
+   * Signed current position size in the target market (long > 0, short < 0).
+   * When supplied, a `reduce_only` claim is VERIFIED against it: an order
+   * that would open or flip a position never gets the reduce-only waivers.
+   */
+  currentPositionSize?: number;
 }
 
 export interface HistoryEvent {
@@ -129,6 +135,22 @@ export function evaluateIntent(
     equity_usd: ctx.account.equityUsd,
     now: new Date(ctx.now).toISOString(),
   };
+
+  // reduce_only is a claim; the position sign is the fact. A "reduce-only"
+  // buy against a long (or a size larger than the position) is an add.
+  const pos = ctx.account.currentPositionSize;
+  const reduces =
+    pos === undefined
+      ? intent.reduce_only
+      : intent.reduce_only &&
+        pos !== 0 &&
+        (intent.side === "buy" ? pos < 0 : pos > 0) &&
+        size <= Math.abs(pos) + 1e-12;
+  if (intent.reduce_only) {
+    baseSnapshot["reduce_only_claimed"] = true;
+    baseSnapshot["reduce_only_effective"] = reduces;
+    if (!reduces) baseSnapshot["reduce_only_note"] = "claimed reduce-only but order would open/add — waivers withheld";
+  }
 
   const trace: TraceStep[] = [];
   const pass = (rule: TraceStep["rule"], detail?: string): void => {
@@ -199,8 +221,8 @@ export function evaluateIntent(
   }
   pass("notional", `$${notionalUsd.toFixed(2)} ≤ $${policy.max_order_notional_usd}`);
 
-  // 2c. Policy: leverage cap (skipped for reduce-only exits).
-  if (intent.reduce_only) {
+  // 2c. Policy: leverage cap (skipped for verified reduce-only exits).
+  if (reduces) {
     skip("leverage", "reduce-only");
   } else {
     const projectedLeverage =
@@ -263,7 +285,7 @@ export function evaluateIntent(
       h.side === intent.side &&
       ctx.now - h.ts < HOUR_MS,
   ).length;
-  if (intent.reduce_only) {
+  if (reduces) {
     skip("same_side_adds", "reduce-only");
   } else if (sameSideAdds >= policy.max_same_side_adds_per_hour) {
     return fail(
@@ -307,8 +329,8 @@ export function evaluateIntent(
   }
   pass("book_depth", `${ctx.market.depthWithinBand.toFixed(4)} ≥ ${requiredDepth.toFixed(4)}`);
 
-  // 6. Coarse margin check (skipped for reduce-only exits).
-  if (intent.reduce_only) {
+  // 6. Coarse margin check (skipped for verified reduce-only exits).
+  if (reduces) {
     skip("margin", "reduce-only");
   } else {
     const requiredMargin = notionalUsd / policy.max_leverage;

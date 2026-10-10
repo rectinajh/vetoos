@@ -122,6 +122,35 @@ describe("evaluateIntent — policy rules", () => {
     const d = evaluateIntent(makeIntent({ reduce_only: true }), policy, ctx);
     expect(d.decision).toBe("allow");
   });
+
+  it("reduce-only is verified against the position sign: a buy against a long is an add", () => {
+    const ctx = makeCtx();
+    ctx.account.equityUsd = 100;
+    ctx.account.currentPositionNotionalUsd = 450;
+    ctx.account.currentPositionSize = 4.5; // long; a "reduce-only" BUY cannot reduce it
+    const d = evaluateIntent(makeIntent({ reduce_only: true, side: "buy" }), policy, ctx);
+    expect(d.code).toBe("LEVERAGE_EXCEEDED");
+    expect(d.snapshot["reduce_only_effective"]).toBe(false);
+  });
+
+  it("reduce-only larger than the position is treated as a flip (no waiver)", () => {
+    const ctx = makeCtx();
+    ctx.account.equityUsd = 100;
+    ctx.account.currentPositionNotionalUsd = 450;
+    ctx.account.currentPositionSize = 4.5;
+    const d = evaluateIntent(makeIntent({ reduce_only: true, side: "sell", size: "5" }), policy, ctx);
+    expect(d.code).toBe("LEVERAGE_EXCEEDED");
+  });
+
+  it("a genuine reduce-only sell against a long keeps the waivers", () => {
+    const ctx = makeCtx();
+    ctx.account.equityUsd = 100;
+    ctx.account.currentPositionNotionalUsd = 450;
+    ctx.account.currentPositionSize = 4.5;
+    const d = evaluateIntent(makeIntent({ reduce_only: true, side: "sell", size: "1" }), policy, ctx);
+    expect(d.decision).toBe("allow");
+    expect(d.snapshot["reduce_only_effective"]).toBe(true);
+  });
 });
 
 describe("evaluateIntent — daily loss breaker", () => {
