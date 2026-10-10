@@ -11,6 +11,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { verifyMessage } from "viem";
@@ -24,6 +25,17 @@ import { renderOpenApi } from "./openapi.js";
 
 const HUMAN_HEADER = "x-vetoos-human";
 const HUMAN_TOKEN = "I_AM_HUMAN";
+
+/** Short git hash injected into the console so we can tell versions apart at a glance. */
+const BUILD = (() => {
+  try {
+    return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch {
+    return "dev";
+  }
+})();
 
 interface Context {
   config: CliConfig;
@@ -81,8 +93,8 @@ async function route(ctx: Context, req: IncomingMessage, res: ServerResponse): P
   const method = req.method ?? "GET";
 
   if (method === "GET" && path === "/") {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(renderDashboard());
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    res.end(renderDashboard(BUILD));
     return;
   }
   if (method === "GET" && path === "/openapi.json") {

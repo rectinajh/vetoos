@@ -7,7 +7,7 @@
  * the engine's own trace, alerts derive from the same counters the rules use.
  */
 
-export function renderDashboard(): string {
+export function renderDashboard(build = "dev"): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -189,6 +189,7 @@ export function renderDashboard(): string {
     <span class="badge mono" id="policy">policy …</span>
     <span class="badge" id="nets">…</span>
     <span class="badge mono" id="clock"></span>
+    <span class="badge mono" title="build hash — hard-refresh if this is stale">${build}</span>
     <span style="flex:1"></span>
     <button id="walletBtn" class="wbtn">Connect Wallet</button>
   </header>
