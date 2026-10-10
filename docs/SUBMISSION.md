@@ -46,7 +46,7 @@ outrank claims.
 `assets/logo.svg` — "the brake with a checkmark". Export a PNG before upload.
 
 ### Repository
-TODO: public GitHub URL (MIT). Prior-development disclosure below.
+https://github.com/rectinajh/vetoos — public, MIT. Prior-development disclosure below.
 
 ### Prior-development disclosure (FAQ requirement)
 This project was bootstrapped on 2026-10-10 inside the contest window
