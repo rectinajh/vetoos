@@ -33,7 +33,31 @@ export function renderDashboard(): string {
   #statusDot.frozen { background: var(--red); animation: blink 0.8s infinite alternate; }
   @keyframes blink { to { opacity: 0.35; } }
 
-  .stage { display: grid; grid-template-columns: 300px 1fr 300px; gap: 14px; margin-top: 16px; }
+  .stage { display: grid; grid-template-columns: 300px minmax(0, 1fr) 300px; gap: 14px; margin-top: 16px; }
+
+  /* tablet: two columns — proposers + gate, venue spreads below */
+  @media (max-width: 1080px) {
+    .stage { grid-template-columns: 260px minmax(0, 1fr); }
+    .col.venue { grid-column: 1 / -1; display: grid;
+                 grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+    .col.venue h3 { grid-column: 1 / -1; margin-bottom: 0; }
+    .col.venue .venue-card { margin-bottom: 0; }
+  }
+
+  /* phone: single column, THE GATE first */
+  @media (max-width: 720px) {
+    .wrap { padding: 14px 12px 48px; }
+    .stage { grid-template-columns: 1fr; }
+    .gate { order: -1; min-height: 430px; padding: 12px; }
+    .rule .rn { width: 104px; font-size: 11px; }
+    .rule .dt { font-size: 10px; }
+    #stamp { font-size: 28px; border-width: 4px; letter-spacing: 2px; padding: 4px 16px; }
+    #stamp.allowed { font-size: 24px; }
+    h1 { font-size: 17px; }
+    #overlay h2 { font-size: 26px; letter-spacing: 3px; }
+    #overlay .box { padding: 24px 16px; }
+    .col.venue { grid-template-columns: repeat(2, 1fr); }
+  }
   .col h3 { font-size: 11px; color: var(--dim); letter-spacing: 1.5px; margin: 0 0 10px;
             text-transform: uppercase; font-weight: 600; }
   .proposer, .venue-card { background: var(--panel); border: 1px solid var(--line);
@@ -116,7 +140,7 @@ export function renderDashboard(): string {
   </header>
 
   <div class="stage">
-    <div class="col">
+    <div class="col props">
       <h3>Proposers · no keys</h3>
       <div class="proposer" id="pa">
         <div class="name">Strategy A</div><div class="kind">mean-reversion bot</div>
@@ -144,7 +168,7 @@ export function renderDashboard(): string {
       <div id="chip"></div>
     </div>
 
-    <div class="col">
+    <div class="col venue">
       <h3>Venue · the truth</h3>
       <div class="venue-card"><div class="v mono" id="equity">–</div><div class="k">testnet equity (USD)</div></div>
       <div class="venue-card"><div class="v mono" id="pos">–</div><div class="k" id="posK">position</div></div>
