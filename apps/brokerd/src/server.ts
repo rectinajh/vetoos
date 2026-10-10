@@ -17,9 +17,11 @@
 
 import { createServer } from "node:http";
 import { execSync } from "node:child_process";
-import { writeFileSync, unlinkSync, existsSync, readFileSync } from "node:fs";
+import { writeFileSync, unlinkSync, existsSync, readFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HlAdapter } from "@vetoos/adapter-hl";
+import { FixtureAdapter } from "@vetoos/adapter-hl/fixture";
 import { AuditLog } from "@vetoos/audit";
 import { loadPolicy } from "@vetoos/risk";
 import { RiskBroker } from "@vetoos/demo-cli/broker";
@@ -71,13 +73,17 @@ function writeLock(stateDir: string, url: string): () => void {
 }
 
 async function main(): Promise<void> {
-  const config = loadConfig();
+  // VETOOS_OFFLINE=1 → canned venue (judges' mode): no keys, no network, own state dir.
+  const offline = process.env.VETOOS_OFFLINE === "1";
+  const loaded = loadConfig();
+  const config = offline ? { ...loaded, stateDir: mkdtempSync(join(tmpdir(), "vetoos-offline-")) } : loaded;
+  if (offline) console.log(`[offline] FIXTURE VENUE — no keys, no network; ephemeral state in ${config.stateDir}`);
   assertPolicyExists(config.policyPath);
   const policy = loadPolicy(config.policyPath);
-  if (!config.privateKey || !config.accountAddress) {
-    throw new Error("HL_PRIVATE_KEY and HL_ACCOUNT_ADDRESS required — docs/TESTNET_SETUP.md");
+  if (!offline && (!config.privateKey || !config.accountAddress)) {
+    throw new Error("HL_PRIVATE_KEY and HL_ACCOUNT_ADDRESS required — docs/TESTNET_SETUP.md (or VETOOS_OFFLINE=1)");
   }
-  const adapter = new HlAdapter(config);
+  const adapter = offline ? new FixtureAdapter() : new HlAdapter(config);
   const audit = new AuditLog(config.stateDir, policy.contentHash);
   const broker = new RiskBroker(policy, adapter, audit, config.stateDir);
 
@@ -98,12 +104,13 @@ async function main(): Promise<void> {
   }
 
   // Same trade-market resolution as the demo: env pin → policy default → BTC.
-  const tradeMarket =
-    config.tradeMarket ??
-    (await adapter
-      .getMarketContext(policy.policy.default_market, "testnet")
-      .then(() => policy.policy.default_market)
-      .catch(() => "BTC"));
+  const tradeMarket = offline
+    ? policy.policy.default_market
+    : (config.tradeMarket ??
+      (await adapter
+        .getMarketContext(policy.policy.default_market, "testnet")
+        .then(() => policy.policy.default_market)
+        .catch(() => "BTC")));
 
   const port = Number(process.env.VETOOS_PORT ?? 4399); // 4310 collides with common apps
   const host = process.env.VETOOS_HOST ?? "127.0.0.1";
@@ -120,7 +127,8 @@ async function main(): Promise<void> {
     audit,
     tradeMarket,
     options: {
-      build: BUILD,
+      build: offline ? `${BUILD}-offline` : BUILD,
+      offline,
       ...(publicToken ? { publicToken } : {}),
       protectReads: process.env.VETOOS_PROTECT_READS === "1",
     },

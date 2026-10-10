@@ -108,8 +108,10 @@ export function intentIdToCloid(intentId: string): `0x${string}` {
 /** Round a base-asset size down to the market's lot size. */
 export function roundSize(size: number, szDecimals: number): string {
   const factor = Math.pow(10, szDecimals);
-  const rounded = Math.floor(size * factor) / factor;
-  return rounded.toFixed(szDecimals);
+  // 0.0012 * 10000 = 11.999999999999998 in IEEE-754 — snap to 1e-9 before
+  // flooring so an exact multiple of the lot is never rounded down a lot.
+  const lots = Math.floor(Number((size * factor).toFixed(9)));
+  return (lots / factor).toFixed(szDecimals);
 }
 
 /** Aggressive IOC price that behaves like a market order, slippage-capped. */

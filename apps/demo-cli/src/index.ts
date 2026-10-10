@@ -4,15 +4,18 @@
  *
  *   pnpm preflight                  pre-flight checks (real data paths)
  *   pnpm demo [--auto] [--step N]   the four-act hackathon demo
+ *   pnpm demo --offline             same four acts against a canned venue (no keys, no network)
  *   pnpm broker status              broker state snapshot
  *   pnpm broker submit --file X     submit an Intent IR JSON file
  *   pnpm broker unfreeze --confirm I_AM_HUMAN
  *   pnpm broker close --confirm I_AM_HUMAN   reduce-only close of the demo position
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HlAdapter } from "@vetoos/adapter-hl";
+import { FixtureAdapter } from "@vetoos/adapter-hl/fixture";
 import { AuditLog } from "@vetoos/audit";
 import { loadPolicy } from "@vetoos/risk";
 import { RiskBroker } from "./broker.js";
@@ -115,6 +118,24 @@ async function main(): Promise<number> {
       return runInit(flags);
 
     case "demo": {
+      if (flags["offline"] === true) {
+        // Judges' mode: same broker, same engine, same four acts — canned venue.
+        // State goes to its own directory so it never mixes with real runs.
+        const offline = { ...config, stateDir: mkdtempSync(join(tmpdir(), "vetoos-offline-")) };
+        assertPolicyExists(offline.policyPath);
+        const policy = loadPolicy(offline.policyPath);
+        const adapter = new FixtureAdapter();
+        const audit = new AuditLog(offline.stateDir, policy.contentHash);
+        const broker = new RiskBroker(policy, adapter, audit, offline.stateDir);
+        await broker.init();
+        console.log(`[offline] FIXTURE VENUE — no keys, no network; simulated fills; ephemeral state in ${offline.stateDir}`);
+        await runDemo(broker, adapter, policy, {
+          auto: true,
+          ...(typeof flags["step"] === "string" ? { step: Number(flags["step"]) } : {}),
+          tradeMarket: policy.policy.default_market,
+        });
+        return 0;
+      }
       refuseWhileDaemon(runningDaemon(config.stateDir), "demo");
       assertWriteConfig(config);
       const broker = await buildBroker(config, true);
@@ -223,6 +244,7 @@ async function main(): Promise<number> {
   pnpm preflight                             pre-flight checks (real data paths)
   pnpm demo --auto                           run all four demo acts
   pnpm demo --step N                         run only act N (1-4, for recording)
+  pnpm demo --offline                        four acts on a canned venue (no keys / network)
   pnpm broker status                         broker state snapshot
   pnpm broker submit --file intent.json      submit an Intent IR payload
   pnpm broker unfreeze --confirm I_AM_HUMAN  human-only reset after a freeze

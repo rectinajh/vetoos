@@ -1,121 +1,141 @@
-# 产品需求文档：VetoOS
+# Product Requirements: VetoOS
 
-**副标题：** 面向 HIP-3 的 AI 新范式风控 OS（先否决、再成交）
+**Subtitle:** the AI-era risk-control OS for Hyperliquid HIP-3 — veto first, then fill.
 
-**中文主句：** 把账对得上，把规矩立住，防住上头与 FOMO，才能走得更远。  
-**英文副句：** Don't trust the agent. Verify the fill. / Verify the fill. Enforce the rules. Outlast FOMO.
+**Tagline:** *Don't trust the agent. Verify the fill. Enforce the rules. Outlast FOMO.*
 
-## 0. 主打定位（评委 10 秒）
+> 中文原稿见 [zh/PRD.md](zh/PRD.md). This English version is the submission copy and reflects the shipped code.
 
-**一句话：** 给 HIP-3 装上 AI 时代的刹车——提案归模型，成交归规矩，账目必须对得上。
+## 0. Positioning (the 10-second version)
 
-**三个关键词：** AI 新范式 · 风控 OS · 真实 HIP-3
+**One sentence:** a brake for HIP-3 in the age of AI agents — models propose, rules dispose, and the books must match the venue.
 
-## 1. 一句话是什么
+**Three keywords:** AI-native paradigm · risk-control OS · real HIP-3.
 
-VetoOS 不是又一个「AI 帮你炒币」的软件，而是 **HIP-3 专用的 AI 新范式风控 OS**。  
-它插在**策略/AI**和 **Hyperliquid HIP-3 真实市场**之间，作为**唯一出入口**：程序可以提交易想法，但只有通过写死的安全规则才能下单；下完还要和真实仓位对账。顺带用冷静期、日亏与频率限制，**挡住情绪化追涨杀跌**。
+## 1. What it is
 
-像给自动驾驶加物理刹车：导航（AI/冲动）可以喊加速，**刹车和限速不能被情绪改掉**。
+VetoOS is not another "AI trades for you" bot. It is a **risk-control OS purpose-built for HIP-3**.
+It sits between **strategies / AI agents** and **real Hyperliquid HIP-3 markets** as the **single
+exit**: programs may submit trade *intents*, but only the deterministic rulebook can turn an intent
+into a signed order, and every fill is reconciled against the venue's own account state afterwards.
+Cool-downs, daily-loss and frequency limits stop emotional chasing (FOMO) on the way.
 
-## 2. 背景
+Think of a self-driving car: navigation (the AI, the impulse) may ask for speed, but **the brake and
+the speed limit cannot be edited by emotion**.
 
-Hyperliquid 上脚本、机器人和 AI 自动交易越来越普遍。接口和「只能交易、不能提现」的授权已经有了，缺的是**可信的总闸**。  
-人把下单权交给黑盒后，不只会算错账，还会在 FOMO 时连续加仓。密码朋克要的是：自持权限、规则高于模型、成交可核验。
+## 2. Background
 
-## 3. 用户
+Scripts, bots and AI agents increasingly trade on Hyperliquid. APIs and "trade-only, no-withdraw"
+agent wallets already exist. What is missing is a **trustworthy master switch**. Once a human hands
+order rights to a black box, the failure modes are not just accounting errors — they are runaway
+same-side adds during a pump. The cypherpunk answer: self-custody of permissions, rules above
+models, fills that can be verified.
 
-- **主力：** 自己跑量化/多策略的人  
-- **次要：** 想用 AI 辅助、又怕失控和上头的人  
-- **生态：** 其他开源交易工具，把 VetoOS 当标准出口  
+## 3. Users
 
-## 4. 痛点
+- **Primary:** people running their own quant / multi-strategy stacks.
+- **Secondary:** traders who want AI assistance but fear loss of control and tilt.
+- **Ecosystem:** other open-source trading tools that adopt VetoOS as their standard exit.
 
-1. **停不住** — 多程序/AI 都能直接下单，没有总闸  
-2. **账对不上** — 本地以为成交了，链上/账户不是那样  
-3. **看不清风险** — 盘口薄、保证金紧仍硬冲  
-4. **不敢信闭源 agent** — 要你「相信我们」  
-5. **上头与 FOMO** — 行情一热就加密、加频、追单，事后才后悔  
+## 4. Pain points
 
-## 5. 解决方案
+1. **Can't stop it** — several programs / agents can each hit the exchange directly; no master switch.
+2. **Books don't match** — local state says "filled", the venue says otherwise.
+3. **Risk is invisible** — thin books and tight margin, yet the bot keeps pushing.
+4. **Closed agents demand trust** — "just believe us".
+5. **Tilt and FOMO** — more leverage, more frequency, more chasing when the market heats up; regret later.
 
-### 原则（密码朋克）
+## 5. Solution
 
-密钥尽量自持 · **规则 > 模型** · 开源可审计 · 少信承诺、多核验成交 · **冷静机制对抗 FOMO**
+### Principles (cypherpunk)
 
-### 三步怎么工作
+Self-custody where possible · **rules > models** · open-source and auditable · verify fills, don't
+trust promises · **cool-down mechanics against FOMO**.
 
-1. **提案：** 策略/AI 只输出标准「交易意图」，不能直连交易所  
-2. **安检（规矩）：** 杠杆/日亏/盘口容量/下单频率/可选冷静期；不过则拒绝并说明原因（含「疑似 FOMO 追单」类提示）  
-3. **对账（真相）：** 回报与 Hyperliquid 真实状态核对；不一致则冻结继续下单  
+### Three steps
 
-进阶叙事：政策化「允许交易边界」；HIP-4 等可后续扩展。
+1. **Propose** — strategies / AI emit a standard **Intent IR**; they hold no keys and cannot reach the exchange.
+2. **Check (the rules)** — allowed market, notional cap, leverage, daily-loss breaker, post-deny
+   cool-down, same-side-add count, order frequency, real book depth, margin. Denials come with a
+   plain-language bilingual reason (including "looks like FOMO chasing").
+3. **Reconcile (the truth)** — venue fills and positions are compared with the local ledger; a
+   mismatch freezes all new orders until a human releases it.
 
+Later narrative: policy-defined "trading envelopes"; HIP-4 market-level policies as a future extension (not in MVP).
 
-## 5.1 真实 HIP-3 与真实数据（硬要求）
+## 5.1 Real HIP-3 and real data (hard requirement)
 
-本项目**不以纯模拟盘口交差**。MVP 必须：
+The MVP does **not** ship on a simulated book. It must:
 
-1. 通过官方 Info API 枚举真实 HIP-3 perp DEX（`perpDexs`），选定至少一个已上线 DEX（如主网已有 `xyz`、`flx` 等）。
-2. 用 `metaAndAssetCtxs` + `dex` 拉取该 DEX 的**真实标记价、资金费、持仓量、盘口相关上下文**。
-3. 风控规则（容量、名义、FOMO 频率等）基于上述**实时数据**计算否决/放行。
-4. 下单使用 HIP-3 asset id 规则：`100000 + perp_dex_index * 10000 + index_in_meta`（币名形如 `dex:COIN`）；测试网或主网 agent wallet 真下单至少一笔（金额可控、可 reduce-only）。
-5. Fill Truth 对账对比的是 API/账户返回的**真实仓位**，不是本地假账本自嗨。
+1. Enumerate real HIP-3 perp dexes via the official Info API (`perpDexs`) and pin at least one live dex (`xyz` on mainnet).
+2. Pull that dex's **real mark, funding, open interest and book** via `metaAndAssetCtxs { dex }` + `l2Book`.
+3. Compute vetoes (capacity, notional, FOMO frequency …) from that **live data**.
+4. Place orders with the HIP-3 asset-id rule `100000 + perp_dex_index * 10000 + index_in_meta`
+   (coins are `dex:COIN`); at least one real, size-controlled fill on testnet.
+5. Reconcile against the **real account state** returned by the API, not a local ledger talking to itself.
 
-**不做：** 本届仍不自建质押部署新 HIP-3 DEX（50 万 HYPE）；我们**接入并守护已有真实 HIP-3 市场**，而不是自己当 deployer。
+**Not in scope:** staking 500k HYPE to deploy our own HIP-3 dex. We **guard existing real HIP-3 markets**; we are not the deployer.
 
+## 6. Non-goals
 
-## 6. 不做啥
+- Not "an AI that prints a risk score".
+- Not an all-in-one AI trading OS.
+- No new market deployment this round.
 
-- 不只做「AI 打个风险分」  
-- 不做大而全 AI Trading OS  
-- 本届不真质押上新币市场  
+## 7. MVP (what the judges see) — status
 
-## 7. MVP（两天必演示）
+| ID | Capability | Evidence | Status |
+|----|-----------|----------|--------|
+| M1 | Multi-source intents | two strategies + an AI proposer submit Intent IR over HTTP | ✅ `apps/brokerd`, `apps/proposer-ai`, `@vetoos/client` |
+| M2 | Hard veto | at least one denial computed from **real market / account data** (notional, depth, daily loss, frequency) | ✅ live mainnet `xyz:XYZ100` context; see [EVIDENCE.md](EVIDENCE.md) |
+| M3 | Anti-FOMO | cool-down or same-side-add limit fires | ✅ 3 adds/hour + 30 s cool-down |
+| M4 | Allowed fill | a real order on a real HIP-3 venue (testnet) | ✅ BTC main-dex fills and an `xyz:XYZ100` builder-dex fill (asset 750000) on testnet |
+| M5 | Fill reconciliation | a bad ledger is detected and the broker stops | ✅ tamper → freeze → human-only unfreeze; background session reconcile |
+| M6 | Open source + business page | GitHub + who pays | ✅ MIT repo; [SUBMISSION.md §3](SUBMISSION.md) |
 
-| ID | 功能 | 评委看到 |
-|----|------|----------|
-| M1 | 多来源意图接入 | 两个策略或 AI+脚本提想法 |
-| M2 | 硬否决 | 至少一次基于**真实盘口/账户数据**的拒绝（超仓/深度/日亏/频率） |
-| M3 | 防 FOMO | 短冷静期或「连续同向加仓」限制触发一次 |
-| M4 | 放行成交 | 在真实 HIP-3 市场（测试网或主网小额）成功下一笔 |
-| M5 | 成交对账 | 错账检出并停机 |
-| M6 | 开源+商业一页 | GitHub + 谁付钱 |
+## 8. Acceptance
 
-## 8. 验收
+- In the demo, **the model cannot change the breaker or the cool-down rules** (override fields are refused at the intent layer).
+- Deny reasons are readable by a non-engineer (including the anti-tilt ones).
+- A third party can clone the repo and plug in their own strategy in five lines.
+- A ≤3-minute video: tagline → veto / reconcile / cool-down → close.
 
-- 演示中：**模型改不了熔断与冷静规则**  
-- 否决原因普通人能看懂（含防上头）  
-- 可克隆接入自有策略  
-- 3 分钟片：主句开场 → 否决/对账/冷静 → 收束  
+## 9. Judging-criteria self-check
 
-## 9. 评分对齐（自检）
+Functionality: check + reconcile + anti-FOMO as a closed loop, as a service · Impact: the quant
+middleware layer for Hyperliquid · Novelty: the **power structure** (proposal / veto separation,
+fill truth) rather than prediction · UX: plain-language log, live gate console · Open source:
+composable Intent IR, typed client, OpenAPI · Business: open core + builder attribution + hosted.
 
-功能：安检+对账+防 FOMO 闭环 · 影响：HL 量化中间层 · 新颖：权力结构（提案/否决）非预测 · UX：人话日志 · 开源可组合 · 商业：开源核心 + builder/托管  
+## 10. Business (one page) — see [SUBMISSION.md §3](SUBMISSION.md)
 
-## 10. 商业（一页）
+Free to self-host · builder-code attribution on routed flow funds maintenance · hosted monitoring
+and policy management for funds is paid · we never sell signals or lock users in.
 
-开源自建免费；builder 归因养维护；机构要托管监控可付费；不靠卖信号绑死用户。
+## 11. Risk boundary
 
-## 11. 风险边界
+Testnet / controlled environments first; rules do not replace P&L responsibility; on any anomaly
+we **stop rather than push through** (fail closed).
 
-以测试/受控环境为主；规则不能代替盈亏责任；异常时**偏停不偏闯**。
+## 12. Roadmap
 
-## 12. 路线图
+Now: master switch + reconciliation + anti-FOMO as a service → next: strategy plug-ins and policy
+templates, WebSocket fill truth, hosted console → later: alignment with new market types (HIP-4
+policies), on-chain anchoring of the audit chain.
 
-现在：总闸 + 对账 + 防 FOMO → 随后：策略插件与政策模板 → 更后：与新市场类型的边界对齐  
+## Closing line for judges
 
-## 评委收束句
+Automated trading is here to stay; what is dangerous is losing control and losing your head.
+VetoOS keeps the books honest, keeps the rules in charge and keeps FOMO out — on Hyperliquid, for
+real HIP-3 markets. **Machines may think. Rules decide.**
 
-自动交易是刚需；更危险的是失控和下头。VetoOS 在 Hyperliquid 上把**账对清楚、把规矩立住、把 FOMO 拦住**——机器可以想，规则说了算，走得更远。
+## 13. Locked decisions (2026-10-10)
 
-## 13. Grill 锁定决策（2026-10-10）
-
-1. 演示：主网 HIP-3 **真数据**做否决；成交用测试网或主网小额可控路径（材料里两种都展示优先）。
-2. 默认 DEX=`xyz`，默认市场=`xyz:XYZ100`（可配置）。
-3. AI：自然语言→Intent IR；可建议改 policy 但需人确认；**绝不**最终 allow/deny。
-4. Demo 故事：多策略/AI 抢同一账户总闸 + 防 FOMO + 可作他人策略中间件。
-5. 密钥仅 Risk Broker；fail closed；FOMO：同向≤3/时、否决冷静30s；对账容差≤0.5%或1 lot，否则 freeze。
-6. 工程：尖楔子可跑 demo 优先于完美分包。
-7. 材料中英双语；下单带 builder code（可先占位）。
-8. 红线：不自建 HIP-3 DEX；不做全量 Trading OS；LLM 不拍板成交。
+1. Demo: vetoes on **real mainnet HIP-3 data**; fills on testnet with controlled size.
+2. Default dex `xyz`, default market `xyz:XYZ100` (configurable; `VETOOS_TRADE_MARKET` pins the fill market).
+3. AI: natural language → Intent IR; it may *suggest* policy edits for a human to confirm; it **never** decides allow/deny.
+4. Story: several strategies / an AI competing for one account's master switch + anti-FOMO + usable as middleware for anyone's strategy.
+5. Keys only inside the Risk Broker; fail closed; FOMO ≤3 same-side adds/hour, 30 s post-deny cool-down; reconcile tolerance 0.5 % or 1 lot, else freeze.
+6. Engineering: a runnable sharp wedge beats perfect packaging.
+7. Bilingual materials; builder code on orders (placeholder allowed on testnet).
+8. Red lines: no self-deployed HIP-3 dex; no full trading OS; the LLM never signs.

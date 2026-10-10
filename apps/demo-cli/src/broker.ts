@@ -269,7 +269,10 @@ export class RiskBroker {
 
     // 2. Gather REAL inputs for the deterministic engine.
     const snapshot = await this.adapter.getMarketSnapshot(intent.market, READ_NETWORK, intent.side);
-    const account = await this.adapter.getAccountState(WRITE_NETWORK);
+    // Builder dexes have their own clearinghouse: equity, margin and the
+    // position for "xyz:XYZ100" live under dex "xyz", not the main book.
+    const parsed = parseMarket(intent.market);
+    const account = await this.adapter.getAccountState(WRITE_NETWORK, parsed.dex);
     await this.refreshDailyPnl();
     // Read and write networks can quote different marks. Caps (notional,
     // leverage, margin) are evaluated at the HIGHER of the two so a cheaper
@@ -277,7 +280,6 @@ export class RiskBroker {
     const execMark = await this.executionMark(intent.market);
     const evalMark = Math.max(snapshot.markPx, execMark ?? 0);
     // Venue position keys may be "BTC" or "xyz:XYZ100" — match both forms.
-    const parsed = parseMarket(intent.market);
     let positionSize = 0;
     for (const [coin, szi] of account.positions) {
       if (coin === parsed.venueCoin || coin === parsed.coin) {

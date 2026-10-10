@@ -21,6 +21,8 @@ import {
 } from "./helpers.js";
 
 export * from "./helpers.js";
+// The offline FixtureAdapter lives at "@vetoos/adapter-hl/fixture" (it extends
+// HlAdapter, so re-exporting it here would create an import cycle).
 
 export type Network = "mainnet" | "testnet";
 

@@ -44,6 +44,8 @@ export interface AppOptions {
   publicToken?: string;
   /** Also require the token on GET /v1/* (dashboard HTML stays open). */
   protectReads?: boolean;
+  /** Canned venue (FixtureAdapter) — surfaced on /v1/status and the console. */
+  offline?: boolean;
   build: string;
 }
 
@@ -258,6 +260,7 @@ export async function route(ctx: Context, req: IncomingMessage, res: ServerRespo
       writeNetwork: WRITE_NETWORK,
       startedAt: ctx.startedAt,
       build: ctx.options.build,
+      offline: ctx.options.offline === true,
       auditChain: auditChainStatus(ctx),
       lastReconcile: ctx.lastReconcile,
       dailyRealizedPnlUsd: ctx.broker.dailyRealizedPnlUsd,

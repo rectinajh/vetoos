@@ -36,6 +36,17 @@ describe("roundPrice (5 sig figs AND 6 − szDecimals decimals)", () => {
   });
 });
 
+describe("roundSize — floating-point lot boundaries", () => {
+  it("an exact multiple of the lot is not rounded down a lot (0.0012 * 1e4 = 11.999…)", () => {
+    expect(roundSize(0.0012, 4)).toBe("0.0012");
+    expect(roundSize(0.0005, 5)).toBe("0.00050");
+    expect(roundSize(1.1, 1)).toBe("1.1");
+  });
+  it("still floors genuine fractions of a lot", () => {
+    expect(roundSize(0.00129, 4)).toBe("0.0012");
+  });
+});
+
 describe("intentIdToCloid", () => {
   it("derives a 16-byte hex cloid from a UUID intent id", () => {
     expect(intentIdToCloid("11111111-1111-4111-8111-111111111111")).toBe(

@@ -1,60 +1,69 @@
-# VetoOS 技术架构
+# VetoOS — Technical Architecture
 
-## 1. 目标与约束
+> 中文原稿见 [zh/ARCHITECTURE.md](zh/ARCHITECTURE.md). This English version describes the code as shipped.
 
-- **目标：** 成为 **HIP-3 上 AI 新范式风控 OS**——策略/AI 的唯一可信下单出口（否决层 + 成交真相层 + 防 FOMO）。  
-- **硬约束：** 规则大于模型；模型进程拿不到交易所签名密钥；默认开源、可审计。  
-- **黑客松范围：** 必须接真实 HIP-3 数据与至少一笔真实环境下单（测试网优先，主网仅小额）；不要求自建 DEX 或生产级吞吐。
+## 1. Goals and constraints
 
-## 2. 逻辑架构
+- **Goal:** the AI-era risk-control OS for HIP-3 — the single trusted order exit for strategies and
+  AI agents (veto layer + fill-truth layer + anti-FOMO).
+- **Hard constraints:** rules outrank models; no model process ever holds an exchange signing key;
+  open source and auditable by default.
+- **Hackathon scope:** real HIP-3 data and real (testnet) fills; no self-deployed dex, no
+  production throughput claims.
+
+## 2. Logical architecture
 
 ```
 ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ Strategy A  │  │ Strategy B  │  │ AI Proposer │
+│ Strategy A  │  │ Strategy B  │  │ AI Proposer │   no keys, Intent IR only
 └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       │ Intent IR      │                │
+       │ HTTP  POST /v1/intents           │
        └────────────┬───┴────────────────┘
                     ▼
          ┌─────────────────────┐
-         │   Intent Bus        │  排队 / 额度竞争（可选）
+         │   brokerd (HTTP)    │  auth (write-guard token), body limits, caches, console
          └──────────┬──────────┘
                     ▼
          ┌─────────────────────┐
-         │   Risk Broker       │  确定性规则引擎（唯一可签单组件）
-         │  · Policy / limits  │
-         │  · FOMO / cool-down │
-         │  · book capacity    │
+         │   Risk Broker       │  the ONLY component that can sign
+         │  · idempotency      │  processed map + in-flight map (concurrent dedupe)
+         │  · rule engine      │  pure, deterministic, per-rule trace
+         │  · late freeze check│  re-check frozen right before signing
          └──────────┬──────────┘
-              allow │ deny + reason
+              allow │ deny + bilingual reason + trace
                     ▼
          ┌─────────────────────┐
-         │ Hyperliquid Adapter │  agent wallet · API · (远期 CoreWriter)
+         │ Hyperliquid Adapter │  mainnet InfoClient (reads) · testnet ExchangeClient (writes)
+         │  · HIP-3 asset ids  │  cloid = intent id · price/size normalisation
          └──────────┬──────────┘
                     ▼
-              Hyperliquid
-                    │
+              Hyperliquid (Hypercore)
+                    │  fills · clearinghouseState · userFills · openOrders
                     ▼
          ┌─────────────────────┐
-         │   Fill Truth        │  回报 vs 账户/仓位对账 → 不一致则 freeze
+         │   Fill Truth        │  per-order window + session baseline + 60 s background loop
+         │   Audit (hash chain)│  mismatch ⇒ FREEZE (human-only unfreeze)
          └─────────────────────┘
 ```
 
-**关键不变量：** 只有 Risk Broker 持有/调用签名能力；策略与 AI 为无密钥提案方。
+**Key invariant:** only the Risk Broker holds / invokes signing. Strategies and AI are key-less proposers.
 
-## 3. 核心模块
+## 3. Modules
 
-| 模块 | 职责 | 备注 |
-|------|------|------|
-| `intent` | Intent IR schema、校验、序列化 | 版本化 JSON |
-| `bus` | 接收意图、简单排队；可选多策略额度 | MVP 可同步调用 |
-| `risk` | 规则评估：杠杆、日亏、频率、冷静期、名义上限、盘口深度 | 纯函数优先，配置哈希可公开 |
-| `fomo` | 连续同向加仓检测、冷静期时钟 | 属 risk 子模块 |
-| `adapter/hl` | 下单/撤单/查仓位；agent wallet | 官方 SDK |
-| `truth` | 成交与仓位对账、冻结开关 | 错账 → kill switch |
-| `audit` | 否决/放行/冻结日志（人话 + 结构化） | demo 与评委材料 |
-| `ui` / `cli` | 最小面板或 CLI 演示 | 黑客松够用即可 |
+| Package / app | Responsibility | Notes |
+|---|---|---|
+| `packages/intent` | Intent IR schema (zod), validation, `makeIntent` | refuses policy-override fields on sight |
+| `packages/risk` | deterministic rule engine + policy loader (sha256 content hash) | pure functions, per-rule trace, bilingual messages |
+| `packages/adapter-hl` | the only module that talks to Hyperliquid | `@nktkas/hyperliquid`; HIP-3 asset ids; cloid; price & lot rounding; backoff on reads only |
+| `packages/truth` | fill-vs-position reconciliation, append-only ledger | tolerance 0.5 % or 1 lot; `injectTamperedFill` for the drill |
+| `packages/audit` | hash-chained JSONL audit log | `seq / prev_hash / hash`, `verifyChain`, legacy-prefix tolerant |
+| `packages/client` | typed TS client for the brokerd API | 5-line integration |
+| `apps/brokerd` | the Risk Broker as a service: HTTP API + web console | `app.ts` (routes, testable) / `server.ts` (process) / `dashboard.ts` |
+| `apps/proposer-ai` | LLM → Intent IR reference proposer | no keys, no vote |
+| `apps/demo-cli` | `RiskBroker` class, CLI (init / preflight / demo / status / submit / unfreeze / close / reset) | routes through a running brokerd when one owns the state dir |
+| `configs/` | `policy.demo.json` + templates (`conservative`, `degen`, `fund`) | hash recorded in every audit event |
 
-## 4. Intent IR（草案）
+## 4. Intent IR
 
 ```json
 {
@@ -62,109 +71,135 @@
   "id": "uuid",
   "source": "strategy-a | ai-proposer",
   "ts": "ISO-8601",
-  "market": "BTC",
+  "market": "BTC | xyz:XYZ100",
   "side": "buy | sell",
   "size": "string-decimal",
   "order_type": "limit | market",
-  "limit_px": "optional",
+  "limit_px": "optional string-decimal",
   "reduce_only": false,
   "meta": { "rationale": "optional free text from AI" }
 }
 ```
 
-AI 只许写 `meta` 与意图字段；**不得**携带覆盖 risk 配置的字段。
+- AI may write `meta` and the intent fields only; any field that would override risk configuration
+  (`max_leverage`, `policy`, …) makes the intent invalid.
+- `id` must be a UUID: it is the idempotency key **and** is mapped 1:1 to the venue client order id
+  (`cloid = 0x` + uuid-without-dashes), so a retried intent is a duplicate at the venue as well.
+- `reduce_only` is a *claim*. The engine verifies it against the signed position: a "reduce-only"
+  order that would open or flip a position gets no waivers.
 
-## 5. 规则引擎（确定性）
+## 5. Rule engine (deterministic)
 
-评估顺序建议：
+Evaluation order (first failure wins; every rule leaves a `pass | fail | skip` trace step):
 
-1. 全局 freeze（对账失败后）  
-2. Policy：允许品种 / 最大杠杆 / 最大名义  
-3. 日亏熔断  
-4. FOMO：冷静期、同向加仓次数/间隔  
-5. 盘口容量（相对深度的 size 上限）  
-6. 保证金粗检（读账户状态）  
+1. `freeze` — global freeze after a reconciliation mismatch
+2. `market_data` — fail closed when mark/book are missing
+3. `allowed_market`
+4. `notional` — per-order notional cap
+5. `leverage` — projected leverage incl. current position (skipped for verified reduce-only)
+6. `daily_loss` — breaker on **venue-sourced** realised PnL (userFills `closedPnl − fee` since 00:00 UTC)
+7. `cooldown` — post-deny cool-down
+8. `same_side_adds` — FOMO guard, same-side fills in the trailing hour
+9. `rate_limit` — submissions per minute
+10. `book_depth` — size × multiple must fit within the real resting depth around the mark
+11. `margin` — coarse available-margin check
 
-输出：`{ decision: allow|deny, code, message_zh, snapshot }`。  
-**禁止**调用 LLM 作为 allow/deny 的最终决定。
+Output: `{ decision, code, message_en, message_zh, snapshot, trace }`.
+Read- and write-network marks can differ; caps are evaluated at the **higher** of the two
+(`snapshot.mark_px_read`, `snapshot.mark_px_write`) so a cheaper read-side mark can never leak a
+larger-than-allowed order. **The LLM is never on the allow/deny path.**
 
 ## 6. Fill Truth
 
-1. 记录本地：意图 id → 交易所回报（oid、filled、avg px）  
-2. 拉取账户/仓位快照  
-3. 对比：方向、数量容差、时间窗  
-4. 超差 → `freeze=true`，拒绝一切新意图，直到人工/显式解冻  
+1. Per order: `positionBefore` → place (IOC, cloid) → ledger append (only fills with size > 0) →
+   `positionAfter` → `reconcileFills` (direction, size within tolerance).
+2. Session: brokerd sets a **baseline** at startup and runs a **60 s background loop**:
+   whole-session reconcile against the baseline, venue PnL refresh, and an `openOrders` sweep
+   (anything resting escaped the fill-or-kill path and is audited + alerted).
+3. Mismatch ⇒ `frozen = true`; every new intent is denied; a late check right before signing
+   catches freezes that land mid-request.
+4. Unfreeze is human-only (CLI `--confirm I_AM_HUMAN`, header `x-vetoos-human`, or an EIP-191
+   signature by the operator account) and re-baselines the session.
 
-## 7. 与 Hyperliquid / 社区提案的关系
+## 7. Hyperliquid integration
 
-| 能力 | MVP | 远期 |
-|------|-----|------|
-| Info/Exchange API + agent wallet | ✅ | |
-| Builder code 归因 | 可选 | 商业可持续 |
-| HyperEVM CoreWriter | ❌ | 合约侧强制出口 |
-| HIP-3 真实读写 | ✅ 枚举 DEX、真实 ctx、真下单 | 自建 DEX（非本届） |
-| HIP-4 | 可选叙事 | 市场级 Policy |
+| Capability | MVP | Later |
+|---|---|---|
+| Info / Exchange API + agent wallet | ✅ | |
+| HIP-3 real reads (`perpDexs`, `metaAndAssetCtxs {dex}`, `l2Book`, `clearinghouseState {dex}`) | ✅ | |
+| HIP-3 real writes (builder-dex asset ids, cloid, price/lot rules) | ✅ testnet `xyz:XYZ100` (asset 750000) and main-dex BTC | mainnet with controlled size |
+| Builder-code attribution | optional (`HL_BUILDER_ADDRESS`, `HL_BUILDER_FEE_TENTHS_BPS`) | commercial sustainability |
+| WebSocket `userFills` / `webData2` | ❌ (polling + background loop) | real-time fill truth |
+| HyperEVM CoreWriter | ❌ | contract-enforced exit |
+| HIP-4 | narrative only | market-level policies |
 
-
-
-## 7.1 真实 HIP-3 数据路径（必做）
+### 7.1 Real HIP-3 data path
 
 ```
-perpDexs  →  选择 dex（index≥1，如 xyz）
-metaAndAssetCtxs { dex }  →  真实 mark / funding / OI / universe
-l2Book / 用户仓位 API  →  Risk Broker 输入
-下单 asset = 100000 + dex_index * 10000 + meta_index
-Fill Truth ← clearinghouse / 用户状态（真实）
+perpDexs                       → dex index (xyz = 1 on mainnet, 65 on testnet)
+metaAndAssetCtxs { dex }       → real mark / funding / OI / universe (szDecimals)
+l2Book { coin: "xyz:XYZ100" }  → resting depth on the hit side (±50 bps)
+asset id = 100000 + dex_index * 10000 + meta_index   (main dex: plain meta index, BTC = 0)
+clearinghouseState { dex } / userFills / openOrders  → Fill Truth inputs
 ```
 
-- 币名格式：`{dex}:{coin}`（例：文档中的 `xyz:NVDA`）。
-- Adapter 必须带 `dex` 维度，不能只接默认主簿。
-- Demo 默认配置写死一个流动性足够的 HIP-3 市场；启动时若拉不到真实 meta 则拒绝启动（fail closed）。
+- Coin format `{dex}:{coin}`; the adapter always carries the `dex` dimension.
+- Prices are normalised to ≤ 5 significant figures **and** ≤ `6 − szDecimals` decimals; sizes are
+  floored to the lot. Caller-supplied `limit_px` goes through the same rounding.
+- Startup fails closed if the real market context cannot be pulled (with bounded retries for 429s).
+- Builder dexes have their own clearinghouse: collateral must be moved into the dex (`sendAsset`)
+  before an order can fill there.
 
-## 8. 建议仓库结构
+## 8. Repository layout
 
 ```
 vetoos/
   README.md
-  docs/
-    PRD.md
-    ARCHITECTURE.md
-  packages/
-    intent/
-    risk/
-    adapter-hl/
-    truth/
-    audit/
-  apps/
-    demo-cli/          # 黑客松演示入口
-    demo-ui/           # 可选简易面板
-  configs/
-    policy.example.json
+  docs/            PRD.md · ARCHITECTURE.md · EVIDENCE.md · TESTNET_SETUP.md · SUBMISSION.md · OPTIMIZATION.md · zh/
+  packages/        intent · risk · adapter-hl · truth · audit · client
+  apps/            brokerd · proposer-ai · demo-cli
+  configs/         policy.demo.json · templates/{conservative,degen,fund}.json
+  examples/        5-line TS / Python strategy integrations
+  .github/         CI: typecheck + tests
 ```
 
-## 9. 技术选型（建议，可调）
+## 9. Technology
 
-- 语言：TypeScript 或 Python（跟官方 HL SDK 熟悉度选）  
-- 配置：JSON/YAML policy，启动时计算 content hash 写入 audit  
-- 日志：结构化 JSONL + 人话摘要  
-- 测试：规则单测 + 故障注入（错账、拒单、FOMO 触发）
+- TypeScript (ESM, strict), pnpm workspaces, tsx runtime, vitest.
+- `@nktkas/hyperliquid` for Info/Exchange clients, `viem` for signature verification, `zod` for the IR.
+- Policy = JSON with a sha256 content hash written into every audit record.
+- Logs = hash-chained JSONL + a one-line human narration.
+- Tests = rule unit tests + fault injection (bad ledger, write errors, concurrent duplicates,
+  mid-request freeze) + route-level tests of brokerd with a stubbed venue.
 
-## 10. 安全注意
+## 10. Security notes
 
-- 主密钥不进策略进程；演示用 agent wallet  
-- Policy 变更需显式操作并记审计，AI 不可改  
-- 异常默认 deny / freeze  
+- Master key never enters a strategy process; the demo uses an HL agent wallet (trade-only).
+- `.env` is gitignored; the private key exists only inside the broker process.
+- Policy changes are explicit, audited actions; AI cannot make them.
+- Default `deny` / `freeze` on anomalies; write failures burn the intent id (never auto-retried).
+- Exposure beyond localhost requires `VETOOS_PUBLIC_TOKEN` (constant-time compare); binding a
+  non-loopback host without it is refused; `VETOOS_PROTECT_READS=1` extends the guard to GETs.
+- Console output is escaped (intents are untrusted input).
+- One writer per state directory: brokerd holds `brokerd.lock`; the CLI routes through HTTP while it runs.
 
-## 11. 演示路径（对接 PRD MVP）
+## 11. Demo path (maps to PRD MVP)
 
-1. 启动 Broker（加载 policy）  
-2. 策略 A 合法意图 → allow → 测试网下单 → truth OK  
-3. 策略 B 过大/过频 → deny（FOMO 或容量）  
-4. 篡改本地账本 → truth freeze → 后续意图全拒
+1. `pnpm brokerd` loads the policy, pulls real HIP-3 context, baselines the session.
+2. Console → **Legal small buy**: allow → real testnet fill → truth OK.
+3. **Oversized** / **Smuggle override** / **FOMO ×4**: deny at notional / intent layer / FOMO guard.
+4. **Tamper the ledger**: reconcile mismatch → full-screen FREEZE → human button releases it.
 
-## 12. Grill 锁定默认
+## 12. Locked defaults
 
-- dex: `xyz`
-- market: `xyz:XYZ100`
-- fail closed; FOMO 3/h + 30s cooldown; reconcile 0.5% or 1 lot
-- secrets only in Risk Broker
+- dex `xyz`, market `xyz:XYZ100`; fill market pinned via `VETOOS_TRADE_MARKET` where the testnet book is too thin.
+- fail closed; FOMO 3/h + 30 s cool-down; reconcile 0.5 % or 1 lot.
+- secrets only in the Risk Broker.
+
+## 13. Verifiable risk engine (v2 design)
+
+See [VERIFIABLE_RISK_ENGINE.md](./VERIFIABLE_RISK_ENGINE.md). Shipped in this round: the hash
+chain (`seq / prev_hash / hash`, `GET /v1/audit/verify`). Designed, not yet shipped: receipt
+signatures with an independent key, full decision-input archiving for replay, content-addressed
+ruleset hash, Merkle-root anchoring on HyperEVM, commit-reveal for AI proposals, and
+state-bound one-time unfreeze authorisations.

@@ -529,7 +529,10 @@ function refresh() {
     state.tradeMarket = status.tradeMarket || "BTC";
     $("policy").textContent = "policy " + String(status.policyHash||"").slice(0,12) + "…";
     $("gatehash").textContent = "sha256 " + String(status.policyHash||"").slice(0,16) + "…";
-    $("nets").textContent = status.tradeMarket + " · read " + status.readNetwork + " · write " + status.writeNetwork;
+    $("nets").textContent = status.offline
+      ? status.tradeMarket + " · OFFLINE FIXTURE VENUE (no real orders)"
+      : status.tradeMarket + " · read " + status.readNetwork + " · write " + status.writeNetwork;
+    $("nets").style.color = status.offline ? "var(--amber)" : "";
     var ch = status.auditChain || {};
     $("chain").textContent = ch.ok === false ? "audit chain BROKEN @" + ch.brokenAt : "audit chain OK · " + (ch.length || 0);
     $("chain").style.color = ch.ok === false ? "var(--red)" : "var(--dim)";
