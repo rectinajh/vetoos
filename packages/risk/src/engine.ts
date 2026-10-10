@@ -155,11 +155,14 @@ export function evaluateIntent(
         ? (ctx.account.currentPositionNotionalUsd + notionalUsd) / ctx.account.equityUsd
         : Number.POSITIVE_INFINITY;
     if (projectedLeverage > policy.max_leverage) {
+      const finite = Number.isFinite(projectedLeverage);
+      const levText = finite ? `${projectedLeverage.toFixed(2)}x` : "∞";
+      const equityNote = finite ? "" : " (account equity reads 0 — fund the account)";
       return deny(
         "LEVERAGE_EXCEEDED",
-        `Projected leverage ${projectedLeverage.toFixed(2)}x would exceed the ${policy.max_leverage}x cap.`,
-        `预估杠杆 ${projectedLeverage.toFixed(2)}x 超过上限 ${policy.max_leverage}x。`,
-        { ...baseSnapshot, projected_leverage: projectedLeverage },
+        `Projected leverage ${levText} would exceed the ${policy.max_leverage}x cap${equityNote}.`,
+        `预估杠杆 ${levText} 超过上限 ${policy.max_leverage}x${finite ? "" : "（账户权益为 0，请先充值）"}。`,
+        { ...baseSnapshot, projected_leverage: finite ? projectedLeverage : null },
       );
     }
   }

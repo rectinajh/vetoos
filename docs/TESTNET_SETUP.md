@@ -7,34 +7,49 @@ VetoOS 用**主网真实 HIP-3 数据**做否决，在**测试网**真实下单�
 
 ---
 
-## 1. Create a dedicated testnet wallet / 建一个专用测试网钱包
+## 0. Read this first / 先说重点
 
-Use a **throwaway key** — never a wallet that holds real funds.
+The official testnet faucet has one hard rule
+([Hyperliquid docs](https://hyperliquid.gitbook.io/Hyperliquid-docs/onboarding/testnet-faucet)):
+
+> **Only addresses that have deposited on mainnet can claim the 1,000 mock USDC.**
+
+So the flow is: **your real HL account** claims testnet funds, and the broker
+trades through an **agent (API) wallet** you approve for that account.
+The agent key can trade but **cannot withdraw** — exactly the security model
+VetoOS is built on. Your main account key never touches this repo.
+
+官方水龙头硬性要求：**只有在主网入金过的地址**才能领 1000 测试 USDC。
+所以正确姿势是：用你自己的 HL 账户领水，再授权一个 **agent wallet（API 钱包）**给
+Broker 用——agent key 只能交易、不能提现，主密钥永远不进本仓库。
+
+## 1. Claim testnet USDC / 领测试 USDC
+
+1. Open https://app.hyperliquid-testnet.xyz/drip with your normal HL wallet
+   (the one that has deposited on mainnet) connected.
+2. Claim — 1,000 mock USDC lands on your **testnet** account.
+3. Confirm the balance shows on the testnet portfolio page.
+
+## 2. Create + approve an agent wallet / 生成并授权 agent wallet
+
+Option A — in the UI (simplest):
+1. https://app.hyperliquid-testnet.xyz → **More → API** (a.k.a. "API wallet").
+2. Generate an agent wallet; the site shows its private key **once** — copy it.
+
+Option B — locally:
 
 ```bash
-# any way you like to generate a fresh EVM key, e.g. with node:
-node -e "const c=require('crypto');const k='0x'+c.randomBytes(32).toString('hex');console.log(k)"
+pnpm keygen   # prints a fresh agent address + private key
+# then approve that address under More → API → "Authorize an existing agent"
 ```
-
-> Why not an agent (API) wallet? On testnet a dedicated throwaway account key
-> is the shortest safe path. On mainnet you would instead run
-> `approveAgent` from your real account and put the **agent** key here —
-> same env vars, same broker, better hygiene.
-
-## 2. Fund it on testnet / 领测试网 USDC
-
-1. Open https://app.hyperliquid-testnet.xyz with the throwaway wallet connected.
-2. The testnet faucet credits USDC automatically on first deposit action
-   (otherwise use the faucet link in the Hyperliquid Discord).
-3. Confirm a non-zero balance on the portfolio page.
 
 ## 3. Configure .env / 配置环境变量
 
 ```bash
 cp .env.example .env
 # then edit .env:
-#   HL_PRIVATE_KEY=0x<throwaway key from step 1>
-#   HL_ACCOUNT_ADDRESS=0x<its address>
+#   HL_PRIVATE_KEY=0x<AGENT wallet private key from step 2>
+#   HL_ACCOUNT_ADDRESS=0x<YOUR account address from step 1>
 ```
 
 `.env` is gitignored. The key is read only by the Risk Broker process —
@@ -79,7 +94,8 @@ pnpm broker unfreeze --confirm I_AM_HUMAN   # human-only reset after a freeze
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| drip page refuses the claim | address has no mainnet deposit history | use your regular HL account (§0); a fresh throwaway address **cannot** claim |
 | `policy file not found` | wrong cwd or missing file | run from repo root; `ls configs/` |
-| `equity is 0` | faucet not claimed | repeat step 2 |
-| `perp dex "xyz" not found on testnet` | HIP-3 dexes aren't mirrored on testnet | expected — demo falls back to testnet BTC perp for fills; vetoes still read mainnet HIP-3 |
-| venue rejects order `insufficient margin` | size too big for balance | sizes are auto-computed at ~$40 notional; check `configs/policy.demo.json` caps |
+| `equity is 0` | faucet not claimed, or checking the agent instead of the account | `HL_ACCOUNT_ADDRESS` must be the **account** address; the agent key is only for signing |
+| venue rejects `agent not approved` | agent wallet not authorized on testnet | repeat step 2 on **testnet** (approvals are per-network) |
+| venue rejects `insufficient margin` | size too big for balance | sizes are auto-computed at ~$40 notional; check `configs/policy.demo.json` caps |
