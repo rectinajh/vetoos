@@ -16,8 +16,9 @@ describe("computeHip3AssetId", () => {
     expect(computeHip3AssetId(2, 0)).toBe(120000);
   });
 
-  it("main dex (index 0) maps to plain meta index offset", () => {
-    expect(computeHip3AssetId(0, 3)).toBe(100003);
+  it("main dex (index 0) uses the plain meta index (BTC = 0)", () => {
+    expect(computeHip3AssetId(0, 0)).toBe(0);
+    expect(computeHip3AssetId(0, 3)).toBe(3);
   });
 
   it("rejects negative indexes", () => {

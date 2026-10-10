@@ -5,8 +5,8 @@
 
 /**
  * HIP-3 asset id rule (docs/ARCHITECTURE.md §7.1):
- *   asset = 100000 + perp_dex_index * 10000 + index_in_meta
- * The main dex is index 0; the first builder dex (e.g. xyz) is index 1.
+ *   builder dexes (index >= 1): asset = 100000 + perp_dex_index * 10000 + index_in_meta
+ *   main dex (index 0):         asset = index_in_meta   (plain, e.g. BTC = 0)
  */
 export function computeHip3AssetId(perpDexIndex: number, metaIndex: number): number {
   if (!Number.isInteger(perpDexIndex) || perpDexIndex < 0) {
@@ -15,6 +15,7 @@ export function computeHip3AssetId(perpDexIndex: number, metaIndex: number): num
   if (!Number.isInteger(metaIndex) || metaIndex < 0) {
     throw new Error(`invalid meta index: ${metaIndex}`);
   }
+  if (perpDexIndex === 0) return metaIndex;
   return 100000 + perpDexIndex * 10000 + metaIndex;
 }
 
