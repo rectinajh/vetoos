@@ -151,11 +151,6 @@ export function renderDashboard(build = "dev"): string {
           border-radius: 6px; padding: 5px 12px; font-size: 11.5px; cursor: pointer; }
   .wbtn:hover { border-color: var(--accent); color: var(--accent); }
   .wbtn.connected { border-color: var(--green); color: var(--green); cursor: default; }
-  #toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(80px);
-           background: var(--panel2); color: var(--fg); border: 1px solid var(--accent);
-           border-radius: 8px; padding: 9px 16px; font-size: 12px; z-index: 80;
-           opacity: 0; transition: all 0.3s ease; max-width: 80vw; text-align: center; }
-  #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
   .radarwrap { display: flex; justify-content: center; }
   #radar { width: 100%; max-width: 340px; }
   .aihero { display: flex; align-items: baseline; gap: 12px; }
@@ -202,8 +197,6 @@ export function renderDashboard(build = "dev"): string {
     <span class="badge" id="nets">…</span>
     <span class="badge mono" id="clock"></span>
     <span class="badge mono" title="build hash — hard-refresh if this is stale">${build}</span>
-    <span style="flex:1"></span>
-    <button id="walletBtn" class="wbtn">Connect Wallet</button>
   </header>
 
   <div class="stage">
@@ -338,8 +331,6 @@ export function renderDashboard(build = "dev"): string {
   </div>
 </div>
 
-<div id="toast"></div>
-
 <div id="overlay">
   <div class="box">
     <h2>BROKER FROZEN</h2>
@@ -359,79 +350,7 @@ function postHeaders() {
   if (TOKEN) h["x-vetoos-token"] = TOKEN;
   return h;
 }
-var state = { lastKey: null, busy: false, tradeMarket: "BTC", lastOk: 0, wallet: null };
-
-// ---- wallet: optional. Only the human unfreeze uses it (EIP-191 proof). ----
-function shortAddr(a){ return a.slice(0,6) + "…" + a.slice(-4); }
-function toast(msg, ms) {
-  var t = $("toast");
-  t.textContent = msg;
-  t.className = "show";
-  clearTimeout(t._h);
-  t._h = setTimeout(function(){ t.className = ""; }, ms || 3200);
-}
-function walletProvider() {
-  // prefer MetaMask when multiple providers fight; fall back to any injected one.
-  // provider objects from different wallets are weirdly shaped — never trust them.
-  try {
-    var eth = window.ethereum;
-    if (!eth) return null;
-    var list = eth.providers;
-    if (list && typeof list.length === "number" && list.length > 0) {
-      for (var i = 0; i < list.length; i++) {
-        if (list[i] && list[i].isMetaMask) return list[i];
-      }
-      return list[0];
-    }
-    return eth;
-  } catch (e) {
-    return window.ethereum || null;
-  }
-}
-function initWallet() {
-  var btn = $("walletBtn");
-  btn.addEventListener("click", function(){
-    try {
-      if (state.wallet) { toast("wallet " + shortAddr(state.wallet) + " connected"); return; }
-      btn.textContent = "opening wallet…";
-      var eth = walletProvider();
-      if (!eth || typeof eth.request !== "function") {
-        btn.textContent = "Connect Wallet";
-        toast("No wallet detected — install MetaMask, or open this page in your wallet's browser. Console works without one.");
-        return;
-      }
-      toast("check your wallet to approve the connection…");
-      eth.request({ method: "eth_requestAccounts" }).then(function(accs){
-        if (!accs || !accs[0]) {
-          btn.textContent = "Connect Wallet";
-          toast("no account selected");
-          return;
-        }
-        state.wallet = accs[0];
-        btn.textContent = shortAddr(accs[0]);
-        btn.className = "wbtn connected";
-        btn.title = "connected — your signature is the human proof for unfreeze";
-        toast("wallet " + shortAddr(accs[0]) + " connected — it is your unfreeze key");
-      }).catch(function(err){
-        btn.textContent = "Connect Wallet";
-        toast("wallet connection failed: " + ((err && err.message) || "rejected"));
-      });
-    } catch (err) {
-      btn.textContent = "Connect Wallet";
-      toast("wallet handler error: " + ((err && err.message) || String(err)));
-    }
-  });
-  var eth0 = walletProvider();
-  if (eth0 && eth0.on) {
-    eth0.on("accountsChanged", function(accs){
-      state.wallet = accs && accs[0] ? accs[0] : null;
-      var b = $("walletBtn");
-      if (state.wallet) { b.textContent = shortAddr(state.wallet); b.className = "wbtn connected"; }
-      else { b.textContent = "Connect Wallet"; b.className = "wbtn"; }
-    });
-  }
-}
-initWallet();
+var state = { lastKey: null, busy: false, tradeMarket: "BTC", lastOk: 0 };
 setInterval(function(){
   var el = $("fresh"); if (!el) return;
   var age = state.lastOk ? Math.round((Date.now() - state.lastOk) / 1000) : 99;
@@ -515,29 +434,8 @@ document.querySelectorAll("button.scn").forEach(function(b){
   b.addEventListener("click", function(){ fire(b.getAttribute("data-s")); });
 });
 $("ovBtn").onclick = function(){
-  // Preferred path: the operator signs — cryptographic proof of humanity.
-  var eth = walletProvider();
-  if (state.wallet && eth) {
-    var msg = "VetoOS human unfreeze\\n" + new Date().toISOString();
-    toast("check your wallet to sign the unfreeze message…");
-    eth.request({ method: "personal_sign", params: [msg, state.wallet] })
-      .then(function(sig){
-        return fetch("/v1/unfreeze", {
-          method: "POST",
-          headers: postHeaders(),
-          body: JSON.stringify({ address: state.wallet, message: msg, signature: sig }),
-        });
-      })
-      .then(function(r){ return r.json(); })
-      .then(function(res){
-        if (res.error) toast(res.error);
-        else toast("unfrozen by wallet signature");
-        refresh();
-      })
-      .catch(function(){ toast("signature rejected — stays frozen, correctly"); });
-    return;
-  }
-  // Fallback: local human token (judges without a wallet).
+  // Human-only unfreeze (local token header; wallet-signature path remains
+  // available server-side for operators who want it).
   var uh = postHeaders(); uh["x-vetoos-human"] = "I_AM_HUMAN";
   fetch("/v1/unfreeze", { method: "POST", headers: uh }).then(refresh);
 };
