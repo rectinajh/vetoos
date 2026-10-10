@@ -151,6 +151,11 @@ export function renderDashboard(): string {
           border-radius: 6px; padding: 5px 12px; font-size: 11.5px; cursor: pointer; }
   .wbtn:hover { border-color: var(--accent); color: var(--accent); }
   .wbtn.connected { border-color: var(--green); color: var(--green); cursor: default; }
+  #toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(80px);
+           background: var(--panel2); color: var(--fg); border: 1px solid var(--accent);
+           border-radius: 8px; padding: 9px 16px; font-size: 12px; z-index: 80;
+           opacity: 0; transition: all 0.3s ease; max-width: 80vw; text-align: center; }
+  #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
   .foot { margin-top: 20px; color: var(--dim); font-size: 10.5px; }
   a { color: var(--accent); text-decoration: none; }
   @media (max-width: 740px) { .dashrow { grid-template-columns: 1fr; } }
@@ -303,6 +308,8 @@ export function renderDashboard(): string {
   </div>
 </div>
 
+<div id="toast"></div>
+
 <div id="overlay">
   <div class="box">
     <h2>BROKER FROZEN</h2>
@@ -319,30 +326,54 @@ var state = { lastKey: null, busy: false, tradeMarket: "BTC", lastOk: 0, wallet:
 
 // ---- wallet: optional. Only the human unfreeze uses it (EIP-191 proof). ----
 function shortAddr(a){ return a.slice(0,6) + "…" + a.slice(-4); }
+function toast(msg, ms) {
+  var t = $("toast");
+  t.textContent = msg;
+  t.className = "show";
+  clearTimeout(t._h);
+  t._h = setTimeout(function(){ t.className = ""; }, ms || 3200);
+}
+function walletProvider() {
+  // prefer MetaMask when multiple providers fight; fall back to any injected one
+  if (window.ethereum) {
+    if (window.ethereum.providers && window.ethereum.providers.length) {
+      var mm = window.ethereum.providers.find(function(p){ return p.isMetaMask; });
+      return mm || window.ethereum.providers[0];
+    }
+    return window.ethereum;
+  }
+  return null;
+}
 function initWallet() {
   var btn = $("walletBtn");
-  if (!window.ethereum) {
-    btn.textContent = "no wallet (view-only)";
-    btn.style.opacity = 0.55; btn.style.cursor = "default";
-    btn.title = "No injected wallet found — the console works without one; unfreeze also accepts the local human token.";
-    return;
-  }
   btn.addEventListener("click", function(){
-    if (state.wallet) return;
-    window.ethereum.request({ method: "eth_requestAccounts" }).then(function(accs){
-      if (!accs || !accs[0]) return;
+    if (state.wallet) { toast("wallet " + shortAddr(state.wallet) + " connected"); return; }
+    var eth = walletProvider();
+    if (!eth || !eth.request) {
+      toast("No wallet detected — install MetaMask, or open this page in your wallet's browser. Console works without one.");
+      return;
+    }
+    toast("check your wallet to approve the connection…");
+    eth.request({ method: "eth_requestAccounts" }).then(function(accs){
+      if (!accs || !accs[0]) { toast("no account selected"); return; }
       state.wallet = accs[0];
       btn.textContent = shortAddr(accs[0]);
       btn.className = "wbtn connected";
       btn.title = "connected — your signature is the human proof for unfreeze";
-    }).catch(function(){});
+      toast("wallet " + shortAddr(accs[0]) + " connected — it is your unfreeze key");
+    }).catch(function(err){
+      toast("wallet connection failed: " + ((err && err.message) || "rejected"));
+    });
   });
-  window.ethereum.on && window.ethereum.on("accountsChanged", function(accs){
-    state.wallet = accs && accs[0] ? accs[0] : null;
-    var b = $("walletBtn");
-    if (state.wallet) { b.textContent = shortAddr(state.wallet); b.className = "wbtn connected"; }
-    else { b.textContent = "Connect Wallet"; b.className = "wbtn"; }
-  });
+  var eth = walletProvider();
+  if (eth && eth.on) {
+    eth.on("accountsChanged", function(accs){
+      state.wallet = accs && accs[0] ? accs[0] : null;
+      var b = $("walletBtn");
+      if (state.wallet) { b.textContent = shortAddr(state.wallet); b.className = "wbtn connected"; }
+      else { b.textContent = "Connect Wallet"; b.className = "wbtn"; }
+    });
+  }
 }
 initWallet();
 setInterval(function(){
@@ -429,9 +460,11 @@ document.querySelectorAll("button.scn").forEach(function(b){
 });
 $("ovBtn").onclick = function(){
   // Preferred path: the operator signs — cryptographic proof of humanity.
-  if (state.wallet && window.ethereum) {
-    var msg = "VetoOS human unfreeze\n" + new Date().toISOString();
-    window.ethereum.request({ method: "personal_sign", params: [msg, state.wallet] })
+  var eth = walletProvider();
+  if (state.wallet && eth) {
+    var msg = "VetoOS human unfreeze\\n" + new Date().toISOString();
+    toast("check your wallet to sign the unfreeze message…");
+    eth.request({ method: "personal_sign", params: [msg, state.wallet] })
       .then(function(sig){
         return fetch("/v1/unfreeze", {
           method: "POST",
@@ -440,8 +473,12 @@ $("ovBtn").onclick = function(){
         });
       })
       .then(function(r){ return r.json(); })
-      .then(function(res){ if (res.error) alert(res.error); refresh(); })
-      .catch(function(){ /* user rejected — stays frozen, correctly */ });
+      .then(function(res){
+        if (res.error) toast(res.error);
+        else toast("unfrozen by wallet signature");
+        refresh();
+      })
+      .catch(function(){ toast("signature rejected — stays frozen, correctly"); });
     return;
   }
   // Fallback: local human token (judges without a wallet).
