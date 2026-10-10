@@ -134,7 +134,10 @@ We never sell signals and never take custody; the key stays with the operator (H
 
 ## 4. Demo video script (≤ 3:00, English voiceover)
 
-> Record with `pnpm demo --step N` per act; terminal font ≥ 16pt; dark theme.
+> Record with `pnpm demo --step N` per act, or `pnpm demo:record` for the whole run with
+> the cool-down WINDOW compressed (the rule is unchanged — only the 30 s waits, which
+> would otherwise eat ~90 s of a 3-minute video; the profile's hash is recorded in every
+> receipt). Terminal font ≥ 16pt; dark theme.
 
 | Time | Scene | Narration (say) |
 |---|---|---|
@@ -143,8 +146,8 @@ We never sell signals and never take custody; the key stays with the operator (H
 | 0:35–1:05 | console: click **Legal small buy** | "Watch the gate: every deterministic rule lights up green against real market data — allowed. Real testnet fill, and the venue's own position confirms the ledger. Truth, not trust." |
 | 1:05–1:35 | console: **Oversized order**, then **Smuggle policy override** | "Strategy B wants 10x the cap — the pipeline dies at the notional rule, with a reason anyone can read. Instant retry hits the cool-down. And when the AI smuggles `max_leverage: 999` into its intent, the intent layer refuses it outright." |
 | 1:35–2:05 | console: **FOMO rampage ×4** | "The AI keeps adding the same side. Third add in an hour — the FOMO guard fires. The brake cannot be argued with." |
-| 2:05–2:40 | console: **Tamper the ledger** → freeze overlay | "The nasty case: a fill that never happened appears in the local ledger. Reconciliation compares it with the venue's real position, catches the lie, and freezes everything. Only a human can unfreeze." |
-| 2:40–3:00 | `pnpm test` green + repo scroll | "Open source, MIT, composable Intent IR. Rules outrank models. VetoOS." |
+| 2:05–2:32 | console: **Tamper the ledger** → freeze overlay | "The nasty case: a fill that never happened appears in the local ledger. Reconciliation compares it with the venue's real position, catches the lie, and freezes everything. Only a human can unfreeze." |
+| 2:32–2:58 | terminal: `pnpm prove` (attack suite) | "Now attack the record itself. Flip a denial into an approval — **caught at seq 7**. Delete a receipt — **caught at seq 8**. Swap the archived input behind a receipt — **caught by content address**. Publish a Merkle root that doesn't match — **caught against the anchor**. Four ways to lie, four catches, each naming the exact sequence number. Don't trust the model. Verify the verdict." |
 
 ## 5. Pitch video script (2:00–2:59, English)
 

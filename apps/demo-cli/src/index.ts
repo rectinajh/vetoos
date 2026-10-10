@@ -17,14 +17,16 @@ import { join } from "node:path";
 import { HlAdapter } from "@vetoos/adapter-hl";
 import { FixtureAdapter } from "@vetoos/adapter-hl/fixture";
 import { AuditLog } from "@vetoos/audit";
-import { loadPolicy } from "@vetoos/risk";
+import { loadPolicy, type LoadedPolicy } from "@vetoos/risk";
 import { RiskBroker } from "./broker.js";
 import { assertPolicyExists, loadConfig, type CliConfig } from "./config.js";
 import { runDemo, resolveTradeMarket } from "./demo.js";
 import { receiptSignerFor } from "./keys.js";
 import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
+import { applyRecordingProfile } from "./recording.js";
 import { verifyCommand } from "./verify.js";
+import { attacksCommand } from "./attacks.js";
 
 export function parseFlags(argv: string[]): Record<string, string | boolean> {
   const flags: Record<string, string | boolean> = {};
@@ -43,9 +45,13 @@ export function parseFlags(argv: string[]): Record<string, string | boolean> {
   return flags;
 }
 
-async function buildBroker(config: CliConfig, initNetwork: boolean): Promise<RiskBroker> {
+async function buildBroker(
+  config: CliConfig,
+  initNetwork: boolean,
+  policyOverride?: LoadedPolicy,
+): Promise<RiskBroker> {
   assertPolicyExists(config.policyPath);
-  const policy = loadPolicy(config.policyPath);
+  const policy = policyOverride ?? loadPolicy(config.policyPath);
   const adapter = new HlAdapter(config);
   const audit = new AuditLog(config.stateDir, policy.contentHash);
   const broker = new RiskBroker(policy, adapter, audit, config.stateDir, undefined, receiptSignerFor(config)?.sign);
@@ -124,13 +130,21 @@ async function main(): Promise<number> {
       // state lock, so it can run while the daemon is live (judges can run it).
       return await verifyCommand(rest);
 
+    case "prove":
+      // Attack suite: four dishonest copies of the receipts, four catches.
+      return await attacksCommand(rest);
+
     case "demo": {
       if (flags["offline"] === true) {
         // Judges' mode: same broker, same engine, same four acts — canned venue.
         // State goes to its own directory so it never mixes with real runs.
         const offline = { ...config, stateDir: mkdtempSync(join(tmpdir(), "vetoos-offline-")) };
         assertPolicyExists(offline.policyPath);
-        const policy = loadPolicy(offline.policyPath);
+        const loadedPolicy = loadPolicy(offline.policyPath);
+        // --fast compresses the cool-down WINDOW for recording; the rule is
+        // unchanged and the profile's hash still lands in every receipt.
+        const policy =
+          flags["fast"] === true ? applyRecordingProfile(loadedPolicy, offline.stateDir) : loadedPolicy;
         const adapter = new FixtureAdapter();
         const audit = new AuditLog(offline.stateDir, policy.contentHash);
         const broker = new RiskBroker(policy, adapter, audit, offline.stateDir, undefined, receiptSignerFor(offline)?.sign);
@@ -146,8 +160,10 @@ async function main(): Promise<number> {
       }
       refuseWhileDaemon(runningDaemon(config.stateDir), "demo");
       assertWriteConfig(config);
-      const broker = await buildBroker(config, true);
-      const policy = loadPolicy(config.policyPath);
+      const loadedPolicy = loadPolicy(config.policyPath);
+      const policy =
+        flags["fast"] === true ? applyRecordingProfile(loadedPolicy, config.stateDir) : loadedPolicy;
+      const broker = await buildBroker(config, true, policy);
       const adapter = new HlAdapter(config);
       await runDemo(broker, adapter, policy, {
         auto: flags["auto"] === true,
@@ -255,6 +271,8 @@ async function main(): Promise<number> {
   pnpm demo --offline                        four acts on a canned venue (no keys / network)
   pnpm verify                                verify receipts: chain, signatures, replay, anchor
   pnpm verify --prove N                      Merkle inclusion proof for receipt N
+  pnpm prove                                 attack suite: four ways to lie, four catches
+  pnpm demo:record                           four acts, offline, cool-down compressed for video
   pnpm broker status                         broker state snapshot
   pnpm broker submit --file intent.json      submit an Intent IR payload
   pnpm broker unfreeze --confirm I_AM_HUMAN  human-only reset after a freeze

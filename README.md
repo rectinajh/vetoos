@@ -154,6 +154,7 @@ Design detail: [docs/VERIFIABLE_RISK_ENGINE.md](docs/VERIFIABLE_RISK_ENGINE.md) 
 pnpm install
 pnpm test                 # 182 tests: rules, receipts, tamper matrix, conformance vectors
 pnpm demo:offline         # the four acts on a canned, clearly-labelled fixture venue
+pnpm demo:record          # same, with the cool-down WINDOW compressed for screen recording
 pnpm verify               # recompute every verdict from its archived input
 pnpm brokerd:offline      # the console on the fixture venue → http://127.0.0.1:4399/
 ```
@@ -164,6 +165,7 @@ pnpm brokerd:offline      # the console on the fixture venue → http://127.0.0.
 pnpm verify                                  # L0 parse · L1 chain · L2 signatures · L2 replay · L3 anchor
 pnpm verify --json                           # machine-readable report
 pnpm verify --prove 42                       # Merkle inclusion proof for receipt 42
+pnpm prove                                   # attack suite: four ways to lie, four catches
 ```
 
 Real output from four-act offline runs (with a receipt key and an anchor journal configured):
@@ -178,7 +180,20 @@ head 21 10456e407bd77be8…  unanchored tail 0
 RESULT: VERIFIED
 ```
 
-Now edit one receipt, delete one, or swap one archived input, and run it again:
+`pnpm prove` does that for you, on the receipts a real run just produced — it makes
+four dishonest copies and checks that each one is caught *and named*:
+
+```
+[baseline] untouched receipts                   VERIFIED  21 receipts · 21 linked · 8/8 verdicts recomputed
+[attack 1] flip a DENY verdict to ALLOW         CAUGHT    seq 7: hash mismatch (line edited)
+[attack 2] delete a receipt in the middle       CAUGHT    seq 7: seq 8 ≠ 7
+[attack 3] swap the archived input behind a receipt  CAUGHT  seq 3: inputsHash mismatch (receipt 74b96310…, archive 77826c2e…)
+[attack 4] anchor a root that does not match    CAUGHT    anchor seq 21: local Merkle root 847302c5… ≠ anchored 0000000… (history rewritten)
+
+4/4 attacks caught.
+```
+
+Or do it by hand — edit one receipt, delete one, or swap one archived input:
 
 ```
 FAIL L1 chain        broken at seq 7: hash mismatch (line edited)
