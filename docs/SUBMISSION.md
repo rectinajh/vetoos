@@ -88,10 +88,10 @@ licenses; no pre-existing project code was reused.
 |---|---|---|
 | 0:00–0:15 | Title card + `cat configs/policy.demo.json` | "VetoOS: AI proposes, rules dispose. This is the rulebook — hashed into every audit record." |
 | 0:15–0:35 | `pnpm preflight` green | "Preflight pulls REAL mainnet HIP-3 data: xyz:XYZ100, asset id 110000, live mark, funding, open interest. If this fails, the broker refuses to start." |
-| 0:35–1:05 | `pnpm demo --step 1` | "Strategy A proposes a small buy. The engine checks leverage, frequency, book depth against the real book — allowed. Real testnet fill. And the venue's own position confirms the ledger. Truth, not trust." |
-| 1:05–1:35 | `pnpm demo --step 2` | "Strategy B wants 10x the cap — denied, with a reason anyone can read. It retries instantly — cool-down says no. And when the AI tries to smuggle `max_leverage: 999` into its intent, the intent layer refuses it outright." |
-| 1:35–2:05 | `pnpm demo --step 3` | "The AI keeps adding the same side. Third add in an hour — the FOMO guard fires. The brake cannot be argued with." |
-| 2:05–2:40 | `pnpm demo --step 4` | "Now the nasty case: the local ledger is tampered — a fill that never happened. Reconciliation compares it with the venue's real position, catches the lie, and freezes the broker. Everything after is denied. Only a human can unfreeze." |
+| 0:35–1:05 | console: click **Legal small buy** | "Watch the gate: every deterministic rule lights up green against real market data — allowed. Real testnet fill, and the venue's own position confirms the ledger. Truth, not trust." |
+| 1:05–1:35 | console: **Oversized order**, then **Smuggle policy override** | "Strategy B wants 10x the cap — the pipeline dies at the notional rule, with a reason anyone can read. Instant retry hits the cool-down. And when the AI smuggles `max_leverage: 999` into its intent, the intent layer refuses it outright." |
+| 1:35–2:05 | console: **FOMO rampage ×4** | "The AI keeps adding the same side. Third add in an hour — the FOMO guard fires. The brake cannot be argued with." |
+| 2:05–2:40 | console: **Tamper the ledger** → freeze overlay | "The nasty case: a fill that never happened appears in the local ledger. Reconciliation compares it with the venue's real position, catches the lie, and freezes everything. Only a human can unfreeze." |
 | 2:40–3:00 | `pnpm test` green + repo scroll | "Open source, MIT, composable Intent IR. Rules outrank models. VetoOS." |
 
 ## 5. Pitch video script (2:00–2:59, English)

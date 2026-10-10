@@ -250,3 +250,29 @@ describe("evaluateIntent — evaluation order (first deny wins)", () => {
     expect(d.code).toBe("MARKET_NOT_ALLOWED");
   });
 });
+
+describe("evaluateIntent — trace (the explainable verdict)", () => {
+  it("allow: every rule passes, reduce-only skips leverage/margin", () => {
+    const d = evaluateIntent(makeIntent({ reduce_only: true }), policy, makeCtx());
+    expect(d.decision).toBe("allow");
+    expect(d.trace.every((t) => t.outcome !== "fail")).toBe(true);
+    const skipped = d.trace.filter((t) => t.outcome === "skip").map((t) => t.rule);
+    expect(skipped).toEqual(["leverage", "same_side_adds", "margin"]);
+  });
+
+  it("deny: trace stops exactly at the failing rule", () => {
+    const d = evaluateIntent(makeIntent({ size: "10.01" }), policy, makeCtx());
+    const last = d.trace[d.trace.length - 1];
+    expect(last?.rule).toBe("notional");
+    expect(last?.outcome).toBe("fail");
+    expect(d.trace.filter((t) => t.outcome === "fail")).toHaveLength(1);
+    // rules before the failure passed; rules after never ran
+    expect(d.trace.map((t) => t.rule)).toEqual(["freeze", "market_data", "allowed_market", "notional"]);
+  });
+
+  it("frozen: trace is a single fail step", () => {
+    const d = evaluateIntent(makeIntent(), policy, makeCtx({ frozen: true, freezeReason: "x" }));
+    expect(d.trace).toHaveLength(1);
+    expect(d.trace[0]).toMatchObject({ rule: "freeze", outcome: "fail" });
+  });
+});

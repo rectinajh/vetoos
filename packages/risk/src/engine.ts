@@ -34,6 +34,27 @@ export interface Decision {
   message_en: string;
   message_zh: string;
   snapshot: Record<string, unknown>;
+  /** Per-rule evaluation trail — what makes the verdict explainable (and renderable). */
+  trace: TraceStep[];
+}
+
+export type TraceOutcome = "pass" | "fail" | "skip";
+
+export interface TraceStep {
+  rule:
+    | "freeze"
+    | "market_data"
+    | "allowed_market"
+    | "notional"
+    | "leverage"
+    | "daily_loss"
+    | "cooldown"
+    | "same_side_adds"
+    | "rate_limit"
+    | "book_depth"
+    | "margin";
+  outcome: TraceOutcome;
+  detail?: string;
 }
 
 export interface MarketSnapshot {
@@ -83,8 +104,9 @@ function deny(
   message_en: string,
   message_zh: string,
   snapshot: Record<string, unknown>,
+  trace: TraceStep[],
 ): Decision {
-  return { decision: "deny", code, message_en, message_zh, snapshot };
+  return { decision: "deny", code, message_en, message_zh, snapshot, trace };
 }
 
 export function evaluateIntent(
@@ -108,48 +130,79 @@ export function evaluateIntent(
     now: new Date(ctx.now).toISOString(),
   };
 
+  const trace: TraceStep[] = [];
+  const pass = (rule: TraceStep["rule"], detail?: string): void => {
+    trace.push({ rule, outcome: "pass", ...(detail !== undefined ? { detail } : {}) });
+  };
+  const skip = (rule: TraceStep["rule"], detail?: string): void => {
+    trace.push({ rule, outcome: "skip", ...(detail !== undefined ? { detail } : {}) });
+  };
+  const fail = (
+    code: DenyCode,
+    rule: TraceStep["rule"],
+    message_en: string,
+    message_zh: string,
+    snapshot: Record<string, unknown>,
+    detail?: string,
+  ): Decision => {
+    trace.push({ rule, outcome: "fail", ...(detail !== undefined ? { detail } : {}) });
+    return deny(code, message_en, message_zh, snapshot, trace);
+  };
+
   // 1. Global freeze — the reconciliation kill switch outranks everything.
   if (ctx.frozen) {
-    return deny(
+    return fail(
       "FROZEN",
+      "freeze",
       `Broker is frozen (${ctx.freezeReason ?? "reconciliation mismatch"}). No new orders until a human unfreezes.`,
       `总闸已冻结（${ctx.freezeReason ?? "对账不符"}）。人工解冻前拒绝一切新意图。`,
       { ...baseSnapshot, freeze_reason: ctx.freezeReason },
+      ctx.freezeReason,
     );
   }
+  pass("freeze", "not frozen");
 
   // Market data sanity — fail closed when the venue gave us nothing real.
   if (!(ctx.market.markPx > 0) || !Number.isFinite(ctx.market.markPx)) {
-    return deny(
+    return fail(
       "NO_MARKET_DATA",
+      "market_data",
       `No real market data for ${intent.market}; refusing to evaluate against stale or synthetic prices.`,
       `拿不到 ${intent.market} 的真实行情，拒绝在虚假数据上放行。`,
       baseSnapshot,
     );
   }
+  pass("market_data", `mark ${ctx.market.markPx}`);
 
   // 2a. Policy: market allow-list.
   if (!policy.allowed_markets.includes(intent.market)) {
-    return deny(
+    return fail(
       "MARKET_NOT_ALLOWED",
+      "allowed_market",
       `${intent.market} is not on the allowed-markets list (${policy.allowed_markets.join(", ")}).`,
       `${intent.market} 不在允许交易名单内（${policy.allowed_markets.join(", ")}）。`,
       baseSnapshot,
     );
   }
+  pass("allowed_market");
 
   // 2b. Policy: single-order notional cap.
   if (notionalUsd > policy.max_order_notional_usd) {
-    return deny(
+    return fail(
       "NOTIONAL_EXCEEDED",
+      "notional",
       `Order notional $${notionalUsd.toFixed(2)} exceeds the $${policy.max_order_notional_usd} single-order cap.`,
       `单笔名义 $${notionalUsd.toFixed(2)} 超过上限 $${policy.max_order_notional_usd}。`,
       baseSnapshot,
+      `$${notionalUsd.toFixed(2)} > $${policy.max_order_notional_usd}`,
     );
   }
+  pass("notional", `$${notionalUsd.toFixed(2)} ≤ $${policy.max_order_notional_usd}`);
 
   // 2c. Policy: leverage cap (skipped for reduce-only exits).
-  if (!intent.reduce_only) {
+  if (intent.reduce_only) {
+    skip("leverage", "reduce-only");
+  } else {
     const projectedLeverage =
       ctx.account.equityUsd > 0
         ? (ctx.account.currentPositionNotionalUsd + notionalUsd) / ctx.account.equityUsd
@@ -158,24 +211,29 @@ export function evaluateIntent(
       const finite = Number.isFinite(projectedLeverage);
       const levText = finite ? `${projectedLeverage.toFixed(2)}x` : "∞";
       const equityNote = finite ? "" : " (account equity reads 0 — fund the account)";
-      return deny(
+      return fail(
         "LEVERAGE_EXCEEDED",
+        "leverage",
         `Projected leverage ${levText} would exceed the ${policy.max_leverage}x cap${equityNote}.`,
         `预估杠杆 ${levText} 超过上限 ${policy.max_leverage}x${finite ? "" : "（账户权益为 0，请先充值）"}。`,
         { ...baseSnapshot, projected_leverage: finite ? projectedLeverage : null },
+        `${levText} > ${policy.max_leverage}x`,
       );
     }
+    pass("leverage", `${projectedLeverage.toFixed(2)}x ≤ ${policy.max_leverage}x`);
   }
 
   // 3. Daily-loss circuit breaker.
   if (ctx.account.dailyRealizedPnlUsd <= -policy.max_daily_loss_usd) {
-    return deny(
+    return fail(
       "DAILY_LOSS_CIRCUIT_BREAKER",
+      "daily_loss",
       `Daily realized loss $${ctx.account.dailyRealizedPnlUsd.toFixed(2)} hit the -$${policy.max_daily_loss_usd} breaker. Trading stops for today.`,
       `当日已实现亏损 $${ctx.account.dailyRealizedPnlUsd.toFixed(2)} 触及 -$${policy.max_daily_loss_usd} 熔断线，今日停止交易。`,
       baseSnapshot,
     );
   }
+  pass("daily_loss", `$${ctx.account.dailyRealizedPnlUsd.toFixed(2)} > -$${policy.max_daily_loss_usd}`);
 
   // 4a. FOMO guard: post-deny cooldown — no instant revenge re-submits.
   const lastDeny = ctx.history
@@ -185,14 +243,17 @@ export function evaluateIntent(
     const cooldownUntil = lastDeny + policy.cooldown_seconds_after_deny * 1000;
     if (ctx.now < cooldownUntil) {
       const remaining = Math.ceil((cooldownUntil - ctx.now) / 1000);
-      return deny(
+      return fail(
         "FOMO_COOLDOWN",
+        "cooldown",
         `Cool-down active: ${remaining}s left after the last rejection. Take a breath before re-submitting.`,
         `冷静期中：距上次否决还有 ${remaining} 秒。先缓缓，别急着再冲。`,
         { ...baseSnapshot, cooldown_remaining_s: remaining },
+        `${remaining}s left`,
       );
     }
   }
+  pass("cooldown");
 
   // 4b. FOMO guard: repeated same-side adds within the trailing hour.
   const sameSideAdds = ctx.history.filter(
@@ -202,13 +263,19 @@ export function evaluateIntent(
       h.side === intent.side &&
       ctx.now - h.ts < HOUR_MS,
   ).length;
-  if (!intent.reduce_only && sameSideAdds >= policy.max_same_side_adds_per_hour) {
-    return deny(
+  if (intent.reduce_only) {
+    skip("same_side_adds", "reduce-only");
+  } else if (sameSideAdds >= policy.max_same_side_adds_per_hour) {
+    return fail(
       "FOMO_SAME_SIDE_ADDS",
+      "same_side_adds",
       `${sameSideAdds} same-side ${intent.side} fills in the past hour (cap ${policy.max_same_side_adds_per_hour}). This looks like chasing — possible FOMO.`,
       `过去一小时已 ${sameSideAdds} 笔同向 ${intent.side} 加仓（上限 ${policy.max_same_side_adds_per_hour}）。疑似 FOMO 追单，拦下。`,
       { ...baseSnapshot, same_side_adds_1h: sameSideAdds },
+      `${sameSideAdds}/h ≥ ${policy.max_same_side_adds_per_hour}`,
     );
+  } else {
+    pass("same_side_adds", `${sameSideAdds}/h < ${policy.max_same_side_adds_per_hour}`);
   }
 
   // 4c. Frequency guard.
@@ -216,36 +283,45 @@ export function evaluateIntent(
     (h) => (h.kind === "intent" || h.kind === "fill") && ctx.now - h.ts < MINUTE_MS,
   ).length;
   if (recentSubmissions >= policy.max_orders_per_minute) {
-    return deny(
+    return fail(
       "RATE_LIMIT",
+      "rate_limit",
       `${recentSubmissions} submissions in the past minute (cap ${policy.max_orders_per_minute}). Slow down.`,
       `过去一分钟已提交 ${recentSubmissions} 笔（上限 ${policy.max_orders_per_minute}）。降速。`,
       { ...baseSnapshot, submissions_1m: recentSubmissions },
     );
   }
+  pass("rate_limit", `${recentSubmissions}/min < ${policy.max_orders_per_minute}`);
 
   // 5. Book capacity: order size must stay well inside real resting depth.
   const requiredDepth = size * policy.min_book_depth_multiple;
   if (ctx.market.depthWithinBand < requiredDepth) {
-    return deny(
+    return fail(
       "BOOK_DEPTH",
+      "book_depth",
       `Order size ${intent.size} needs ${requiredDepth.toFixed(6)} units of real book depth (${policy.min_book_depth_multiple}x), only ${ctx.market.depthWithinBand.toFixed(6)} available. The book is too thin for this size.`,
       `下单量 ${intent.size} 需要 ${requiredDepth.toFixed(6)} 真实盘口深度（${policy.min_book_depth_multiple} 倍），实际仅 ${ctx.market.depthWithinBand.toFixed(6)}。盘口太薄，吃不下这单。`,
       { ...baseSnapshot, required_depth: requiredDepth },
+      `${ctx.market.depthWithinBand.toFixed(4)} < ${requiredDepth.toFixed(4)}`,
     );
   }
+  pass("book_depth", `${ctx.market.depthWithinBand.toFixed(4)} ≥ ${requiredDepth.toFixed(4)}`);
 
   // 6. Coarse margin check (skipped for reduce-only exits).
-  if (!intent.reduce_only) {
+  if (intent.reduce_only) {
+    skip("margin", "reduce-only");
+  } else {
     const requiredMargin = notionalUsd / policy.max_leverage;
     if (requiredMargin > ctx.account.availableMarginUsd) {
-      return deny(
+      return fail(
         "MARGIN_INSUFFICIENT",
+        "margin",
         `Need ≈$${requiredMargin.toFixed(2)} margin, only $${ctx.account.availableMarginUsd.toFixed(2)} available.`,
         `约需保证金 $${requiredMargin.toFixed(2)}，可用仅 $${ctx.account.availableMarginUsd.toFixed(2)}。`,
         { ...baseSnapshot, required_margin_usd: requiredMargin },
       );
     }
+    pass("margin", `≈$${requiredMargin.toFixed(2)} ≤ $${ctx.account.availableMarginUsd.toFixed(2)}`);
   }
 
   return {
@@ -254,5 +330,6 @@ export function evaluateIntent(
     message_en: `Allowed: ${intent.side} ${intent.size} ${intent.market} passes all deterministic checks.`,
     message_zh: `放行：${intent.side} ${intent.size} ${intent.market} 通过全部确定性检查。`,
     snapshot: baseSnapshot,
+    trace,
   };
 }

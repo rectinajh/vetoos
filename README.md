@@ -62,8 +62,10 @@ pnpm preflight                          # checks policy, keys, real mainnet + te
 pnpm brokerd                            # the broker as a service → http://127.0.0.1:4399/
 ```
 
-Open **http://127.0.0.1:4399/** for the console: freeze banner, live account
-stats, bilingual decision feed, human-only unfreeze button.
+Open **http://127.0.0.1:4399/** for the console — an interactive stage for the
+core flow: scenario buttons fire **real** intents, the gate animates the
+engine's per-rule evaluation trace, tampering triggers the full-screen freeze
+takeover, and only the human button releases it.
 
 ### Propose a trade from your strategy (5 lines)
 

@@ -124,6 +124,25 @@ async function route(ctx: Context, req: IncomingMessage, res: ServerResponse): P
     }
     return;
   }
+  if (method === "POST" && path === "/v1/demo/tamper") {
+    // DEMO ONLY (localhost): inject a fill that never happened, then reconcile.
+    // This is what makes the freeze provable live from the console.
+    const market = ctx.tradeMarket;
+    const marketCtx = await ctx.adapter.getMarketContext(market, WRITE_NETWORK);
+    ctx.broker.ledger.injectTamperedFill({
+      intentId: crypto.randomUUID(),
+      market,
+      side: "buy",
+      size: 100 * Math.pow(10, -marketCtx.szDecimals),
+      avgPx: marketCtx.markPx,
+      oid: Date.now(),
+      ts: Date.now(),
+      szDecimals: marketCtx.szDecimals,
+    });
+    const result = await ctx.broker.reconcileNow(market);
+    json(res, 200, { tampered: true, reconcile: result, frozen: ctx.broker.frozen });
+    return;
+  }
   if (method === "POST" && path === "/v1/unfreeze") {
     if (req.headers[HUMAN_HEADER] !== HUMAN_TOKEN) {
       json(res, 403, {
