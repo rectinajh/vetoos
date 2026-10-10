@@ -128,8 +128,28 @@ export function renderDashboard(): string {
   #overlay p { color: #f3c1c1; }
   #overlay button { margin-top: 22px; background: var(--red); color: #fff; border: 0;
                     padding: 13px 26px; font-size: 14px; font-weight: 800; border-radius: 8px; cursor: pointer; }
+  .dashrow { display: grid; grid-template-columns: 1.2fr 1fr 0.7fr; gap: 12px; margin-top: 12px; }
+  .dashlabel { font-size: 9.5px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  #spark { width: 100%; height: 60px; background: #0a1320; border-radius: 6px; }
+  .bc { display: flex; align-items: center; gap: 6px; margin: 3px 0; font-size: 10.5px; }
+  .bc .nm { width: 118px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bc .bb { height: 8px; border-radius: 2px; background: var(--red); min-width: 2px; }
+  .bc .ct { font-weight: 700; }
+  .cfhero { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+  .cfnum { font-size: 30px; font-weight: 900; color: var(--green); }
+  .cfside { min-width: 200px; }
+  .cfrow { display: flex; gap: 8px; font-size: 10.5px; padding: 3px 0; border-bottom: 1px solid #0e1622; align-items: baseline; }
+  .cfrow .t { color: #48576e; width: 58px; flex-shrink: 0; }
+  .cfrow .m { flex: 1; }
+  .cfrow .p { font-weight: 700; }
+  .pnl-pos { color: var(--green); }
+  .pnl-neg { color: var(--red); }
+  .fillrow { display: flex; justify-content: space-between; font-size: 10.5px; padding: 2.5px 0; border-bottom: 1px solid #0e1622; }
+  .fillrow .b { color: var(--green); font-weight: 700; }
+  .fillrow .s { color: var(--red); font-weight: 700; }
   .foot { margin-top: 20px; color: var(--dim); font-size: 10.5px; }
   a { color: var(--accent); text-decoration: none; }
+  @media (max-width: 740px) { .dashrow { grid-template-columns: 1fr; } }
 
   @media (max-width: 1120px) {
     .stage { grid-template-columns: 250px minmax(0,1fr); }
@@ -199,7 +219,7 @@ export function renderDashboard(): string {
       </div>
 
       <div class="panel">
-        <div class="phead"><span>Risk utilization · same counters the rules use</span></div>
+        <div class="phead"><span>Risk dashboard · utilization</span></div>
         <div class="pbody">
           <div class="gauges">
             <div class="gauge"><div class="ghead"><span>FOMO adds</span><span class="gval mono" id="gFomoV">–</span></div><div class="gbar"><i id="gFomo"></i></div></div>
@@ -208,6 +228,38 @@ export function renderDashboard(): string {
             <div class="gauge"><div class="ghead"><span>margin use</span><span class="gval mono" id="gMarginV">–</span></div><div class="gbar"><i id="gMargin"></i></div></div>
             <div class="gauge"><div class="ghead"><span>cool-down</span><span class="gval mono" id="gCoolV">–</span></div><div class="gbar"><i id="gCool"></i></div></div>
           </div>
+          <div class="dashrow">
+            <div class="dashcol">
+              <div class="dashlabel">equity curve (session)</div>
+              <svg id="spark" viewBox="0 0 300 60" preserveAspectRatio="none"></svg>
+            </div>
+            <div class="dashcol">
+              <div class="dashlabel">denials by rule</div>
+              <div id="bycode"></div>
+            </div>
+            <div class="dashcol small">
+              <div class="dashlabel">track record</div>
+              <div class="kv"><span class="k">allowed</span><span class="v mono" id="stAllow" style="color:var(--green)">0</span></div>
+              <div class="kv"><span class="k">denied</span><span class="v mono" id="stDeny" style="color:var(--red)">0</span></div>
+              <div class="kv"><span class="k">fills</span><span class="v mono" id="stFill">0</span></div>
+              <div class="kv"><span class="k">freezes</span><span class="v mono" id="stFrz">0</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="phead"><span>Without the gate · counterfactual</span><span class="chip test">what-if</span></div>
+        <div class="pbody">
+          <div class="cfhero">
+            <div><div class="cfnum" id="cfSaved">$0.00</div><div class="dashlabel">loss blocked by vetoes (denied intents marked to market)</div></div>
+            <div class="cfside">
+              <div class="kv"><span class="k">denied notional</span><span class="v mono" id="cfNotional">–</span></div>
+              <div class="kv"><span class="k">vs equity</span><span class="v mono" id="cfLev">–</span></div>
+              <div class="kv"><span class="k">missed gains</span><span class="v mono" id="cfMissed">$0.00</span></div>
+            </div>
+          </div>
+          <div id="cfrows"></div>
         </div>
       </div>
     </div>
@@ -218,12 +270,15 @@ export function renderDashboard(): string {
         <div class="pbody" id="alerts"><div class="noalerts">no active alerts — nominal</div></div>
       </div>
       <div class="panel">
-        <div class="phead"><span>Venue account</span><span class="chip test" id="venueNet">testnet</span></div>
+        <div class="phead"><span>Venue account · testnet execution</span><span class="chip test" id="venueNet">testnet</span></div>
         <div class="pbody">
           <div class="big2 mono" id="equity">–</div><div class="sub2">equity (USD)</div>
           <div class="kv" style="margin-top:8px"><span class="k">available</span><span class="v mono" id="avail">–</span></div>
           <div class="kv"><span class="k">position</span><span class="v mono" id="pos">–</span></div>
-          <div class="kv"><span class="k">last fill</span><span class="v mono" id="lastfill">–</span></div>
+          <div class="kv"><span class="k">entry px</span><span class="v mono" id="posEntry">–</span></div>
+          <div class="kv"><span class="k">unrealized pnl</span><span class="v mono" id="posUpnl">–</span></div>
+          <div class="dashlabel" style="margin-top:8px">recent venue fills</div>
+          <div id="fills"></div>
         </div>
       </div>
       <div class="panel truth" id="truth">
@@ -369,6 +424,23 @@ function setGauge(id, idV, used, cap, suffix) {
   $(idV).textContent = suffix ? used + suffix : (used + "/" + cap);
 }
 
+var equitySeries = [];
+function drawSpark() {
+  var svg = $("spark");
+  if (equitySeries.length < 2) { svg.innerHTML = ""; return; }
+  var vals = equitySeries.map(function(p){ return p.v; });
+  var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+  var span = (max - min) || 1;
+  var pts = equitySeries.map(function(p, i){
+    var x = i / (equitySeries.length - 1) * 300;
+    var y = 54 - ((p.v - min) / span) * 48;
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  var up = vals[vals.length - 1] >= vals[0];
+  svg.innerHTML = '<polyline points="' + pts + '" fill="none" stroke="' +
+    (up ? "#3fb950" : "#f85149") + '" stroke-width="1.6"/>';
+}
+
 function refresh() {
   Promise.all([
     fetch("/v1/status").then(function(r){return r.json();}),
@@ -376,8 +448,12 @@ function refresh() {
     fetch("/v1/feed?n=60").then(function(r){return r.json();}),
     fetch("/v1/market").then(function(r){return r.json();}),
     fetch("/v1/risk").then(function(r){return r.json();}),
+    fetch("/v1/execution").then(function(r){return r.json();}),
+    fetch("/v1/stats").then(function(r){return r.json();}),
+    fetch("/v1/counterfactual").then(function(r){return r.json();}),
   ]).then(function(all){
-    var status = all[0], account = all[1], feed = all[2], market = all[3], risk = all[4];
+    var status = all[0], account = all[1], feed = all[2], market = all[3], risk = all[4],
+        execution = all[5], stats = all[6], cf = all[7];
     state.tradeMarket = status.tradeMarket || "BTC";
     $("policy").textContent = "policy " + String(status.policyHash||"").slice(0,12) + "…";
     $("gatehash").textContent = "sha256 " + String(status.policyHash||"").slice(0,16) + "…";
@@ -400,6 +476,58 @@ function refresh() {
     $("equity").textContent = "$" + fmt(account.equityUsd);
     $("avail").textContent = "$" + fmt(account.availableMarginUsd);
     $("pos").textContent = Number(account.positionSize).toFixed(6) + " " + (account.tradeMarket || "");
+
+    // execution panel: position detail + venue fills
+    var pd = execution.position;
+    $("posEntry").textContent = pd ? fmt(pd.entryPx, 1) : "–";
+    if (pd) {
+      $("posUpnl").textContent = (pd.unrealizedPnl >= 0 ? "+$" : "-$") + fmt(Math.abs(pd.unrealizedPnl));
+      $("posUpnl").className = "v mono " + (pd.unrealizedPnl >= 0 ? "pnl-pos" : "pnl-neg");
+    } else { $("posUpnl").textContent = "–"; $("posUpnl").className = "v mono"; }
+    $("fills").innerHTML = (execution.fills || []).length
+      ? execution.fills.map(function(f){
+          var t = new Date(f.ts).toISOString().slice(11, 19);
+          return '<div class="fillrow"><span class="' + (f.side === "B" ? "b" : "s") + '">' +
+            (f.side === "B" ? "BUY" : "SELL") + '</span><span class="mono">' + f.size + " " + f.coin +
+            '</span><span class="mono">@ ' + fmt(f.px, 1) + '</span><span class="mono" style="color:#48576e">' + t + "</span></div>";
+        }).join("")
+      : '<div class="noalerts">no fills yet this session</div>';
+
+    // equity sparkline (session window)
+    equitySeries.push({ t: Date.now(), v: Number(account.equityUsd) });
+    if (equitySeries.length > 120) equitySeries.shift();
+    drawSpark();
+
+    // stats panel
+    $("stAllow").textContent = stats.allow || 0;
+    $("stDeny").textContent = stats.deny || 0;
+    $("stFill").textContent = stats.fills || 0;
+    $("stFrz").textContent = stats.freeze || 0;
+    var codes = Object.keys(stats.byCode || {});
+    var maxC = Math.max.apply(null, codes.map(function(c){ return stats.byCode[c]; }).concat([1]));
+    $("bycode").innerHTML = codes.length
+      ? codes.sort(function(a,b){ return stats.byCode[b] - stats.byCode[a]; }).map(function(c){
+          var w = Math.max(4, stats.byCode[c] / maxC * 100);
+          return '<div class="bc"><span class="nm mono">' + c + '</span><span class="bb" style="width:' + w + '%"></span><span class="ct">' + stats.byCode[c] + "</span></div>";
+        }).join("")
+      : '<div class="noalerts">no denials yet</div>';
+
+    // counterfactual panel
+    $("cfSaved").textContent = "$" + fmt(cf.avoidedLoss);
+    $("cfSaved").style.color = cf.avoidedLoss > 0 ? "var(--green)" : "var(--dim)";
+    $("cfNotional").textContent = "$" + fmt(cf.grossNotional);
+    $("cfLev").textContent = cf.worstLeverage > 0 ? cf.worstLeverage.toFixed(1) + "x equity" : "–";
+    $("cfMissed").textContent = "$" + fmt(cf.missedGain);
+    $("cfrows").innerHTML = (cf.rows || []).length
+      ? cf.rows.slice().reverse().map(function(r){
+          var cls = r.pnl >= 0 ? "pnl-pos" : "pnl-neg";
+          var pv = (r.pnl >= 0 ? "+$" : "-$") + fmt(Math.abs(r.pnl));
+          return '<div class="cfrow"><span class="t mono">' + r.ts.slice(11, 19) + '</span><span class="m">' +
+            r.side.toUpperCase() + " " + r.size + " " + r.market + ' <span style="color:#48576e">[' + r.code + "]</span></span>" +
+            '<span class="mono" style="color:#48576e">' + fmt(r.entryPx, 1) + "→" + fmt(r.nowPx, 1) + '</span>' +
+            '<span class="p mono ' + cls + '">' + pv + "</span></div>";
+        }).join("")
+      : '<div class="noalerts">no denied intents yet — fire the oversized scenario</div>';
 
     var g = risk.gauges || {};
     if (g.fomo_adds) setGauge("#gFomo", "#gFomoV", g.fomo_adds.used, g.fomo_adds.cap);

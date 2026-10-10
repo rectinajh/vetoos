@@ -192,6 +192,114 @@ async function route(ctx: Context, req: IncomingMessage, res: ServerResponse): P
     });
     return;
   }
+  if (method === "GET" && path === "/v1/execution") {
+    // Testnet execution side: real position detail + recent venue fills.
+    const [position, fills] = await Promise.all([
+      ctx.adapter.getPositionDetail(ctx.tradeMarket, WRITE_NETWORK).catch(() => null),
+      ctx.adapter.getRecentFills(WRITE_NETWORK, 6).catch(() => []),
+    ]);
+    json(res, 200, { market: ctx.tradeMarket, position, fills });
+    return;
+  }
+  if (method === "GET" && path === "/v1/stats") {
+    // Decision statistics from today's audit log — the dashboard's track record.
+    const events = readFeed(ctx, 500) as {
+      type: string;
+      data?: { decision?: string; code?: string };
+    }[];
+    let allow = 0;
+    let deny = 0;
+    let freeze = 0;
+    let fills = 0;
+    const byCode: Record<string, number> = {};
+    for (const ev of events) {
+      if (ev.type === "decision") {
+        if (ev.data?.decision === "allow") allow++;
+        else {
+          deny++;
+          const code = ev.data?.code ?? "INVALID";
+          byCode[code] = (byCode[code] ?? 0) + 1;
+        }
+      } else if (ev.type === "freeze") freeze++;
+      else if (ev.type === "order_placed") fills++;
+    }
+    json(res, 200, { allow, deny, freeze, fills, byCode });
+    return;
+  }
+  if (method === "GET" && path === "/v1/counterfactual") {
+    // "Without the gate": replay denied intents as if they had filled at the
+    // deny-time mark, and value them at the CURRENT mainnet mark.
+    const events = readFeed(ctx, 500) as {
+      ts: string;
+      type: string;
+      data?: {
+        decision?: string;
+        code?: string;
+        duplicate?: boolean;
+        snapshot?: { market?: string; side?: "buy" | "sell"; size?: string; mark_px?: number; notional_usd?: number };
+      };
+    }[];
+    const denied = events.filter(
+      (ev) =>
+        ev.type === "decision" &&
+        ev.data?.decision === "deny" &&
+        !ev.data.duplicate &&
+        ev.data.snapshot?.market &&
+        ev.data.snapshot.size &&
+        ev.data.snapshot.mark_px,
+    );
+    const marks = new Map<string, number>();
+    const rows: {
+      ts: string;
+      market: string;
+      side: string;
+      size: number;
+      entryPx: number;
+      nowPx: number;
+      pnl: number;
+      code: string;
+    }[] = [];
+    for (const ev of denied.slice(-12)) {
+      const s = ev.data!.snapshot!;
+      const market = s.market!;
+      if (!marks.has(market)) {
+        try {
+          const mctx = await ctx.adapter.getMarketContext(market, READ_NETWORK);
+          marks.set(market, mctx.markPx);
+        } catch {
+          continue;
+        }
+      }
+      const nowPx = marks.get(market)!;
+      const size = Number(s.size);
+      const entryPx = Number(s.mark_px);
+      const sign = s.side === "sell" ? -1 : 1;
+      rows.push({
+        ts: ev.ts,
+        market,
+        side: s.side ?? "buy",
+        size,
+        entryPx,
+        nowPx,
+        pnl: sign * size * (nowPx - entryPx),
+        code: ev.data!.code ?? "DENY",
+      });
+    }
+    const avoidedLoss = rows.reduce((acc, r) => acc + Math.max(0, -r.pnl), 0);
+    const missedGain = rows.reduce((acc, r) => acc + Math.max(0, r.pnl), 0);
+    const grossNotional = rows.reduce((acc, r) => acc + r.size * r.entryPx, 0);
+    const account = (await liveAccount(ctx)) as { equityUsd: number };
+    const worstLeverage = account.equityUsd > 0 ? grossNotional / account.equityUsd : 0;
+    json(res, 200, {
+      rows,
+      avoidedLoss,
+      missedGain,
+      grossNotional,
+      equityUsd: account.equityUsd,
+      worstLeverage,
+    });
+    return;
+  }
   if (method === "GET" && path === "/v1/feed") {
     const n = Math.min(Number(url.searchParams.get("n") ?? 50) || 50, 500);
     json(res, 200, { events: readFeed(ctx, n) });

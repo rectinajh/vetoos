@@ -224,6 +224,57 @@ export class HlAdapter {
     return 0;
   }
 
+  /** Position detail for one market (entry, uPnL, leverage) — null when flat. */
+  async getPositionDetail(
+    market: string,
+    network: Network,
+  ): Promise<{
+    size: number;
+    entryPx: number;
+    positionValue: number;
+    unrealizedPnl: number;
+    leverage: number;
+  } | null> {
+    const parsed = parseMarket(market);
+    const state = await withBackoff(() =>
+      this.info(network).clearinghouseState({
+        user: this.accountAddress() as `0x${string}`,
+        ...(parsed.dex ? { dex: parsed.dex } : {}),
+      }),
+    );
+    for (const ap of state.assetPositions) {
+      const p = ap.position;
+      if (p.coin === parsed.coin || p.coin === parsed.venueCoin) {
+        return {
+          size: Number(p.szi),
+          entryPx: Number(p.entryPx ?? 0),
+          positionValue: Number(p.positionValue ?? 0),
+          unrealizedPnl: Number(p.unrealizedPnl ?? 0),
+          leverage: Number(typeof p.leverage === "object" ? p.leverage.value : p.leverage),
+        };
+      }
+    }
+    return null;
+  }
+
+  /** Most recent venue fills (newest first), straight from the venue's ledger. */
+  async getRecentFills(
+    network: Network,
+    limit = 10,
+  ): Promise<{ ts: number; coin: string; side: string; size: number; px: number; oid: number }[]> {
+    const fills = await withBackoff(() =>
+      this.info(network).userFills({ user: this.accountAddress() as `0x${string}` }),
+    );
+    return fills.slice(0, limit).map((f) => ({
+      ts: Number(f.time),
+      coin: f.coin,
+      side: f.side,
+      size: Number(f.sz),
+      px: Number(f.px),
+      oid: Number(f.oid),
+    }));
+  }
+
   /**
    * Place a real order on testnet. Only callable with a configured key —
    * and in this codebase, only the Risk Broker ever calls it.
