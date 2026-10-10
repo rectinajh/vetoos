@@ -147,6 +147,10 @@ export function renderDashboard(): string {
   .fillrow { display: flex; justify-content: space-between; font-size: 10.5px; padding: 2.5px 0; border-bottom: 1px solid #0e1622; }
   .fillrow .b { color: var(--green); font-weight: 700; }
   .fillrow .s { color: var(--red); font-weight: 700; }
+  .wbtn { background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+          border-radius: 6px; padding: 5px 12px; font-size: 11.5px; cursor: pointer; }
+  .wbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .wbtn.connected { border-color: var(--green); color: var(--green); cursor: default; }
   .foot { margin-top: 20px; color: var(--dim); font-size: 10.5px; }
   a { color: var(--accent); text-decoration: none; }
   @media (max-width: 740px) { .dashrow { grid-template-columns: 1fr; } }
@@ -180,6 +184,8 @@ export function renderDashboard(): string {
     <span class="badge mono" id="policy">policy …</span>
     <span class="badge" id="nets">…</span>
     <span class="badge mono" id="clock"></span>
+    <span style="flex:1"></span>
+    <button id="walletBtn" class="wbtn">Connect Wallet</button>
   </header>
 
   <div class="stage">
@@ -309,7 +315,36 @@ export function renderDashboard(): string {
 <script>
 var RULES = ["freeze","market_data","allowed_market","notional","leverage","daily_loss","cooldown","same_side_adds","rate_limit","book_depth","margin"];
 var RULE_LABEL = {freeze:"global freeze",market_data:"real market data",allowed_market:"allowed market",notional:"notional cap",leverage:"leverage cap",daily_loss:"daily-loss breaker",cooldown:"post-deny cool-down",same_side_adds:"FOMO same-side adds",rate_limit:"order frequency",book_depth:"book capacity",margin:"margin check"};
-var state = { lastKey: null, busy: false, tradeMarket: "BTC", lastOk: 0 };
+var state = { lastKey: null, busy: false, tradeMarket: "BTC", lastOk: 0, wallet: null };
+
+// ---- wallet: optional. Only the human unfreeze uses it (EIP-191 proof). ----
+function shortAddr(a){ return a.slice(0,6) + "…" + a.slice(-4); }
+function initWallet() {
+  var btn = $("walletBtn");
+  if (!window.ethereum) {
+    btn.textContent = "no wallet (view-only)";
+    btn.style.opacity = 0.55; btn.style.cursor = "default";
+    btn.title = "No injected wallet found — the console works without one; unfreeze also accepts the local human token.";
+    return;
+  }
+  btn.addEventListener("click", function(){
+    if (state.wallet) return;
+    window.ethereum.request({ method: "eth_requestAccounts" }).then(function(accs){
+      if (!accs || !accs[0]) return;
+      state.wallet = accs[0];
+      btn.textContent = shortAddr(accs[0]);
+      btn.className = "wbtn connected";
+      btn.title = "connected — your signature is the human proof for unfreeze";
+    }).catch(function(){});
+  });
+  window.ethereum.on && window.ethereum.on("accountsChanged", function(accs){
+    state.wallet = accs && accs[0] ? accs[0] : null;
+    var b = $("walletBtn");
+    if (state.wallet) { b.textContent = shortAddr(state.wallet); b.className = "wbtn connected"; }
+    else { b.textContent = "Connect Wallet"; b.className = "wbtn"; }
+  });
+}
+initWallet();
 setInterval(function(){
   var el = $("fresh"); if (!el) return;
   var age = state.lastOk ? Math.round((Date.now() - state.lastOk) / 1000) : 99;
@@ -392,7 +427,26 @@ function fire(kind) {
 document.querySelectorAll("button.scn").forEach(function(b){
   b.addEventListener("click", function(){ fire(b.getAttribute("data-s")); });
 });
-$("ovBtn").onclick = function(){ fetch("/v1/unfreeze",{method:"POST",headers:{"x-vetoos-human":"I_AM_HUMAN"}}).then(refresh); };
+$("ovBtn").onclick = function(){
+  // Preferred path: the operator signs — cryptographic proof of humanity.
+  if (state.wallet && window.ethereum) {
+    var msg = "VetoOS human unfreeze\n" + new Date().toISOString();
+    window.ethereum.request({ method: "personal_sign", params: [msg, state.wallet] })
+      .then(function(sig){
+        return fetch("/v1/unfreeze", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ address: state.wallet, message: msg, signature: sig }),
+        });
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(res){ if (res.error) alert(res.error); refresh(); })
+      .catch(function(){ /* user rejected — stays frozen, correctly */ });
+    return;
+  }
+  // Fallback: local human token (judges without a wallet).
+  fetch("/v1/unfreeze", { method: "POST", headers: { "x-vetoos-human": "I_AM_HUMAN" } }).then(refresh);
+};
 
 function feedLine(ev) {
   var d = ev.data || {};

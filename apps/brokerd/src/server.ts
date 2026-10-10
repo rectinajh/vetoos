@@ -13,6 +13,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { verifyMessage } from "viem";
 import { HlAdapter } from "@vetoos/adapter-hl";
 import { AuditLog } from "@vetoos/audit";
 import { loadPolicy, type LoadedPolicy } from "@vetoos/risk";
@@ -335,14 +336,45 @@ async function route(ctx: Context, req: IncomingMessage, res: ServerResponse): P
     return;
   }
   if (method === "POST" && path === "/v1/unfreeze") {
+    // Path A: wallet-signed proof of humanity (EIP-191 personal_sign).
+    // The signer must be the operator account the broker trades for.
+    const body = (await readBody(req).catch(() => ({}))) as {
+      address?: string;
+      message?: string;
+      signature?: `0x${string}`;
+    };
+    if (body.address && body.message && body.signature) {
+      const fresh = Date.now() - Date.parse(body.message.replace("VetoOS human unfreeze\n", "")) < 120_000;
+      let valid = false;
+      try {
+        valid =
+          fresh &&
+          body.address.toLowerCase() === (ctx.config.accountAddress ?? "").toLowerCase() &&
+          (await verifyMessage({
+            address: body.address as `0x${string}`,
+            message: body.message,
+            signature: body.signature,
+          }));
+      } catch {
+        valid = false;
+      }
+      if (!valid) {
+        json(res, 403, { error: "wallet signature invalid, stale, or not the operator account" });
+        return;
+      }
+      ctx.broker.unfreeze(HUMAN_TOKEN);
+      json(res, 200, { frozen: ctx.broker.frozen, via: "wallet-signature" });
+      return;
+    }
+    // Path B: local human header (CLI / judges without a wallet).
     if (req.headers[HUMAN_HEADER] !== HUMAN_TOKEN) {
       json(res, 403, {
-        error: `unfreeze requires header ${HUMAN_HEADER}: ${HUMAN_TOKEN} — humans only`,
+        error: `unfreeze requires a wallet signature (operator account) or header ${HUMAN_HEADER}: ${HUMAN_TOKEN}`,
       });
       return;
     }
     ctx.broker.unfreeze(HUMAN_TOKEN);
-    json(res, 200, { frozen: ctx.broker.frozen });
+    json(res, 200, { frozen: ctx.broker.frozen, via: "local-token" });
     return;
   }
   json(res, 404, { error: `no route: ${method} ${path}` });
@@ -358,7 +390,22 @@ async function main(): Promise<void> {
   const adapter = new HlAdapter(config);
   const audit = new AuditLog(config.stateDir, policy.contentHash);
   const broker = new RiskBroker(policy, adapter, audit, config.stateDir);
-  await broker.init(); // fail closed on missing real market data
+  // Fail closed on missing real market data — but give transient venue
+  // rate limits a chance to pass first (startup is the critical path).
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await broker.init();
+      break;
+    } catch (err) {
+      if (attempt >= 6) throw err;
+      const waitMs = Math.min(2000 * Math.pow(2, attempt - 1), 20_000);
+      console.log(
+        `[startup] init failed (${err instanceof Error ? err.message : String(err)}), ` +
+          `retry ${attempt}/5 in ${waitMs / 1000}s…`,
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
 
   // Same trade-market resolution as the demo: env pin → policy default → BTC.
   const tradeMarket =

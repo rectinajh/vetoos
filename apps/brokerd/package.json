@@ -10,6 +10,7 @@
     "@vetoos/demo-cli": "workspace:*",
     "@vetoos/intent": "workspace:*",
     "@vetoos/risk": "workspace:*",
-    "@vetoos/truth": "workspace:*"
+    "@vetoos/truth": "workspace:*",
+    "viem": "^2.57.4"
   }
 }
