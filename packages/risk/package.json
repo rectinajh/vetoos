@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@vetoos/audit": "workspace:*",
     "@vetoos/intent": "workspace:*",
     "zod": "^4.0.0"
   }

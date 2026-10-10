@@ -6,6 +6,7 @@
 import { HlAdapter } from "@vetoos/adapter-hl";
 import { loadPolicy } from "@vetoos/risk";
 import { assertPolicyExists, loadConfig, type CliConfig } from "./config.js";
+import { checkKeySeparation } from "./keys.js";
 
 interface Check {
   name: string;
@@ -44,6 +45,12 @@ export async function runDoctor(flags: Record<string, string | boolean>): Promis
     ok: !!config.accountAddress,
     detail: config.accountAddress ?? "missing — set to your testnet account address",
   });
+
+  // 2b. Key ROLES — the human-in-the-loop guarantee is a key-separation
+  // property, so it is checked here and enforced again at broker startup.
+  for (const role of checkKeySeparation(config)) {
+    checks.push({ name: role.name, ok: role.status !== "fail", detail: role.detail });
+  }
 
   const adapter = new HlAdapter(config);
 

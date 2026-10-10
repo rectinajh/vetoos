@@ -5,7 +5,7 @@
  *
  * Evaluation order (fail fast, first deny wins):
  *   1. global freeze (post-reconciliation kill switch)
- *   2. policy: allowed market / max notional / max leverage
+ *   2. policy: oracle distance / allowed market / max notional / max leverage
  *   3. daily-loss circuit breaker
  *   4. FOMO guards: post-deny cooldown, same-side add count, order frequency
  *   5. order-book capacity vs. real depth
@@ -18,6 +18,7 @@ import type { Policy } from "./policy.js";
 export type DenyCode =
   | "FROZEN"
   | "NO_MARKET_DATA"
+  | "ORACLE_DEVIATION"
   | "MARKET_NOT_ALLOWED"
   | "NOTIONAL_EXCEEDED"
   | "LEVERAGE_EXCEEDED"
@@ -44,6 +45,7 @@ export interface TraceStep {
   rule:
     | "freeze"
     | "market_data"
+    | "oracle_distance"
     | "allowed_market"
     | "notional"
     | "leverage"
@@ -131,6 +133,7 @@ export function evaluateIntent(
     order_px: orderPx,
     notional_usd: notionalUsd,
     mark_px: ctx.market.markPx,
+    allowed_notional_usd: policy.max_order_notional_usd,
     depth_within_band: ctx.market.depthWithinBand,
     equity_usd: ctx.account.equityUsd,
     now: new Date(ctx.now).toISOString(),
@@ -195,6 +198,29 @@ export function evaluateIntent(
     );
   }
   pass("market_data", `mark ${ctx.market.markPx}`);
+
+  // Caller-supplied limits must sit near the venue mark. Market orders skip:
+  // the adapter clamps those to the same band before signing.
+  if (intent.order_type === "limit" && intent.limit_px !== undefined) {
+    const limitPx = Number(intent.limit_px);
+    const deviationBps =
+      limitPx > 0 && ctx.market.markPx > 0
+        ? (Math.abs(limitPx - ctx.market.markPx) / ctx.market.markPx) * 10_000
+        : Number.POSITIVE_INFINITY;
+    if (deviationBps > policy.max_oracle_deviation_bps) {
+      return fail(
+        "ORACLE_DEVIATION",
+        "oracle_distance",
+        `Limit ${intent.limit_px} is ${deviationBps.toFixed(0)} bps from mark ${ctx.market.markPx} (cap ${policy.max_oracle_deviation_bps} bps). The venue would reject this as too far from the oracle.`,
+        `限价 ${intent.limit_px} 偏离标记价 ${ctx.market.markPx} 达 ${deviationBps.toFixed(0)} bps（上限 ${policy.max_oracle_deviation_bps}）。交易所会以“离预言机太远”拒单，签名前拦下。`,
+        { ...baseSnapshot, limit_px: intent.limit_px, oracle_deviation_bps: Number.isFinite(deviationBps) ? deviationBps : null },
+        `${deviationBps.toFixed(0)} bps > ${policy.max_oracle_deviation_bps}`,
+      );
+    }
+    pass("oracle_distance", `${deviationBps.toFixed(0)} bps ≤ ${policy.max_oracle_deviation_bps}`);
+  } else {
+    skip("oracle_distance", "market order; adapter clamps to the oracle band");
+  }
 
   // 2a. Policy: market allow-list.
   if (!policy.allowed_markets.includes(intent.market)) {

@@ -13,6 +13,7 @@ const policy: Policy = {
   cooldown_seconds_after_deny: 30,
   max_same_side_adds_per_hour: 3,
   min_book_depth_multiple: 2,
+  max_oracle_deviation_bps: 500,
   freeze_on_reconcile_mismatch: true,
   default_dex: "xyz",
   default_market: "xyz:XYZ100",
@@ -232,6 +233,33 @@ describe("evaluateIntent — FOMO guards", () => {
   });
 });
 
+describe("evaluateIntent — oracle distance", () => {
+  it("skips the check for market orders (the adapter clamps those)", () => {
+    const d = evaluateIntent(makeIntent(), policy, makeCtx());
+    const step = d.trace.find((s) => s.rule === "oracle_distance");
+    expect(step?.outcome).toBe("skip");
+  });
+
+  it("allows a limit inside the band", () => {
+    const d = evaluateIntent(
+      makeIntent({ order_type: "limit", limit_px: "103" }),
+      policy,
+      makeCtx(),
+    );
+    expect(d.trace.find((s) => s.rule === "oracle_distance")?.outcome).toBe("pass");
+  });
+
+  it("denies a limit the venue would reject as too far from the oracle (33000 vs ~30932 was ~670 bps)", () => {
+    const d = evaluateIntent(
+      makeIntent({ order_type: "limit", limit_px: "108" }),
+      policy,
+      makeCtx(),
+    );
+    expect(d.code).toBe("ORACLE_DEVIATION");
+    expect(d.decision).toBe("deny");
+  });
+});
+
 describe("evaluateIntent — book capacity & margin", () => {
   it("denies when the real book is too thin", () => {
     const ctx = makeCtx();
@@ -286,7 +314,7 @@ describe("evaluateIntent — trace (the explainable verdict)", () => {
     expect(d.decision).toBe("allow");
     expect(d.trace.every((t) => t.outcome !== "fail")).toBe(true);
     const skipped = d.trace.filter((t) => t.outcome === "skip").map((t) => t.rule);
-    expect(skipped).toEqual(["leverage", "same_side_adds", "margin"]);
+    expect(skipped).toEqual(["oracle_distance", "leverage", "same_side_adds", "margin"]);
   });
 
   it("deny: trace stops exactly at the failing rule", () => {
@@ -296,7 +324,13 @@ describe("evaluateIntent — trace (the explainable verdict)", () => {
     expect(last?.outcome).toBe("fail");
     expect(d.trace.filter((t) => t.outcome === "fail")).toHaveLength(1);
     // rules before the failure passed; rules after never ran
-    expect(d.trace.map((t) => t.rule)).toEqual(["freeze", "market_data", "allowed_market", "notional"]);
+    expect(d.trace.map((t) => t.rule)).toEqual([
+      "freeze",
+      "market_data",
+      "oracle_distance",
+      "allowed_market",
+      "notional",
+    ]);
   });
 
   it("frozen: trace is a single fail step", () => {

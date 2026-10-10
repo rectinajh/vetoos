@@ -36,6 +36,9 @@ coverage.xml
 .tox/
 .nox/
 
+# Local package store (never commit; 100MB+)
+.pnpm-store/
+
 # Logs
 logs/
 *.log

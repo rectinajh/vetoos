@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./broker": "./src/broker.ts",
     "./config": "./src/config.ts",
+    "./keys": "./src/keys.ts",
     "./demo": "./src/demo.ts"
   },
   "bin": {
@@ -19,6 +20,7 @@
     "@vetoos/intent": "workspace:*",
     "@vetoos/risk": "workspace:*",
     "@vetoos/truth": "workspace:*",
-    "dotenv": "^17.0.0"
+    "dotenv": "^17.0.0",
+    "viem": "^2.57.4"
   }
 }

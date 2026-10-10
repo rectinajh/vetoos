@@ -19,6 +19,8 @@ export interface CliConfig {
   builderFeeTenthsBps?: number;
   /** VETOOS_TRADE_MARKET: force the fill market (e.g. "BTC" while testnet xyz is deployer-gated). */
   tradeMarket?: string;
+  /** VETOOS_RECEIPT_KEY: ed25519 seed (hex/base64) that signs Veto Receipts. */
+  receiptKey?: string;
 }
 
 export function repoRoot(): string {
@@ -55,6 +57,7 @@ export function loadConfig(flags: Record<string, string | boolean> = {}): CliCon
       ? Number(process.env.HL_BUILDER_FEE_TENTHS_BPS)
       : undefined,
     tradeMarket: process.env.VETOOS_TRADE_MARKET || undefined,
+    receiptKey: process.env.VETOOS_RECEIPT_KEY || undefined,
   };
 }
 

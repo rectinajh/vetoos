@@ -94,15 +94,16 @@ Evaluation order (first failure wins; every rule leaves a `pass | fail | skip` t
 
 1. `freeze` — global freeze after a reconciliation mismatch
 2. `market_data` — fail closed when mark/book are missing
-3. `allowed_market`
-4. `notional` — per-order notional cap
-5. `leverage` — projected leverage incl. current position (skipped for verified reduce-only)
-6. `daily_loss` — breaker on **venue-sourced** realised PnL (userFills `closedPnl − fee` since 00:00 UTC)
-7. `cooldown` — post-deny cool-down
-8. `same_side_adds` — FOMO guard, same-side fills in the trailing hour
-9. `rate_limit` — submissions per minute
-10. `book_depth` — size × multiple must fit within the real resting depth around the mark
-11. `margin` — coarse available-margin check
+3. `oracle_distance` — caller limit must sit within `max_oracle_deviation_bps` of the mark (default 500). Market orders skip; the adapter clamps those before signing
+4. `allowed_market`
+5. `notional` — per-order notional cap
+6. `leverage` — projected leverage incl. current position (skipped for verified reduce-only)
+7. `daily_loss` — breaker on **venue-sourced** realised PnL (userFills `closedPnl − fee` since 00:00 UTC)
+8. `cooldown` — post-deny cool-down
+9. `same_side_adds` — FOMO guard, same-side fills in the trailing hour
+10. `rate_limit` — submissions per minute
+11. `book_depth` — size × multiple must fit within the real resting depth around the mark
+12. `margin` — coarse available-margin check
 
 Output: `{ decision, code, message_en, message_zh, snapshot, trace }`.
 Read- and write-network marks can differ; caps are evaluated at the **higher** of the two

@@ -4,7 +4,7 @@
  * rules, placing orders, and reconciling fills against the venue.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   HlAdapter,
@@ -13,13 +13,28 @@ import {
   type Network,
   type PlacedOrder,
 } from "@vetoos/adapter-hl";
-import { AuditLog } from "@vetoos/audit";
+import {
+  AuditLog,
+  commitmentHash,
+  hashOf,
+  type AuditEvent,
+  type ReceiptFields,
+} from "@vetoos/audit";
 import { validateIntent, type Intent } from "@vetoos/intent";
 import {
+  ENGINE_VERSION,
+  RULESET_HASH,
+  buildDecisionInput,
+  canonicalDecisionInput,
+  contextFromDecisionInput,
+  decisionInputHash,
   evaluateIntent,
+  verdictHashOf,
   type Decision,
+  type DecisionInput,
   type HistoryEvent,
   type LoadedPolicy,
+  type MarketSource,
 } from "@vetoos/risk";
 import {
   LedgerStore,
@@ -48,6 +63,10 @@ const DAILY_PNL_TTL_MS = 10_000;
 interface BrokerState {
   frozen: boolean;
   freezeReason?: string;
+  /** Receipt that froze the broker — a human unfreeze must be bound to it. */
+  freezeReceipt?: { seq: number; hash: string };
+  /** One-time unfreeze authorisations already spent (replay protection). */
+  usedUnfreezeNonces?: string[];
   history: HistoryEvent[];
   /** Position baseline for whole-session reconciliation. */
   baseline?: { market: string; size: number; ts: number };
@@ -76,6 +95,12 @@ export class RiskBroker {
   /** Intent ids currently being processed → shared promise (concurrent dedupe). */
   private readonly inFlight = new Map<string, Promise<SubmitResult>>();
   private dailyPnlRefreshedAt = 0;
+  /** Advice committed before the current decision, bound into its receipt. */
+  private pendingAdviceHash?: string;
+
+  private readonly inputsDir: string;
+  /** Canonical hash of the parsed rules (same rules ⇒ same digest, whatever the file formatting). */
+  readonly policySemanticHash: string;
 
   constructor(
     private readonly policy: LoadedPolicy,
@@ -83,9 +108,52 @@ export class RiskBroker {
     private readonly audit: AuditLog,
     stateDir: string,
     readonly ledger: LedgerStore = new LedgerStore(join(stateDir, "ledger.jsonl")),
+    /** Optional receipt signer (authenticity layer). Never the trading key. */
+    private readonly receiptSigner?: (payload: string) => { sig: string; signer: string },
   ) {
     this.statePath = join(stateDir, "broker-state.json");
+    this.inputsDir = join(stateDir, "inputs");
+    this.policySemanticHash = hashOf(policy.policy);
     this.state = this.loadState();
+  }
+
+  /** Receipt fields every verdict carries: which rules, and which code, produced it. */
+  private baseReceipt(): ReceiptFields {
+    return {
+      policyBytesHash: this.policy.contentHash,
+      policySemanticHash: this.policySemanticHash,
+      engineVersion: ENGINE_VERSION,
+      rulesetHash: RULESET_HASH,
+    };
+  }
+
+  /** Record a receipt, signing it when a receipt key is configured. */
+  private recordReceipt(
+    type: Parameters<AuditLog["record"]>[0],
+    data: Record<string, unknown>,
+    line: string,
+    receipt: ReceiptFields,
+  ): AuditEvent {
+    if (this.receiptSigner) {
+      const event = this.audit.recordSigned(type, data, receipt, this.receiptSigner);
+      this.audit.say(line);
+      return event;
+    }
+    return this.audit.recordAndSay(type, data, line, receipt);
+  }
+
+  /**
+   * Archive the full decision input under its content address and return the
+   * hash. Content-addressed, so re-writing the same input is a no-op.
+   */
+  private archiveDecisionInput(input: DecisionInput): string {
+    const inputsHash = decisionInputHash(input);
+    mkdirSync(this.inputsDir, { recursive: true });
+    const file = join(this.inputsDir, inputsHash + ".json");
+    if (!existsSync(file)) {
+      writeFileSync(file, canonicalDecisionInput(input), "utf8");
+    }
+    return inputsHash;
   }
 
   private loadState(): BrokerState {
@@ -149,6 +217,15 @@ export class RiskBroker {
       historyEvents: this.state.history.length,
       baseline: this.state.baseline,
     };
+  }
+
+  /**
+   * The guard windows as the engine sees them. Exposed so tests can assert the
+   * invariant that matters: this MUST equal projectHistory(receipts) — the
+   * state is a projection of the log, not a second source of truth.
+   */
+  history(): HistoryEvent[] {
+    return [...this.state.history];
   }
 
   private pushHistory(event: HistoryEvent): void {
@@ -265,7 +342,10 @@ export class RiskBroker {
   private async processIntent(intent: Intent): Promise<SubmitResult> {
     const now = Date.now();
     this.pushHistory({ ts: now, market: intent.market, side: intent.side, kind: "intent" });
-    this.audit.record("intent_received", { intent });
+    // `at` is the broker's own clock for this event: the receipt chain is the
+    // source of truth for the guard windows, so the timestamp must live here
+    // (projectHistory rebuilds the engine's history from exactly this field).
+    this.audit.record("intent_received", { intent, at: now });
 
     // 2. Gather REAL inputs for the deterministic engine.
     const snapshot = await this.adapter.getMarketSnapshot(intent.market, READ_NETWORK, intent.side);
@@ -287,36 +367,78 @@ export class RiskBroker {
         break;
       }
     }
+    const evalMarket = {
+      market: intent.market,
+      markPx: evalMark,
+      funding: snapshot.funding,
+      openInterest: snapshot.openInterest,
+      depthWithinBand: snapshot.depthWithinBand,
+      szDecimals: snapshot.szDecimals,
+    };
+    const evalAccount = {
+      equityUsd: account.equityUsd,
+      availableMarginUsd: account.availableMarginUsd,
+      dailyRealizedPnlUsd: this.state.dailyRealizedPnlUsd,
+      currentPositionNotionalUsd: Math.abs(positionSize) * evalMark,
+      currentPositionSize: positionSize,
+    };
+    // Freeze of the guard windows exactly as the engine will see them.
+    const evalHistory = [...this.state.history];
+    const marketSource: MarketSource = {
+      readNetwork: READ_NETWORK,
+      writeNetwork: WRITE_NETWORK,
+      evalMarkPx: evalMark,
+      readMarkPx: snapshot.markPx,
+      writeMarkPx: execMark,
+      readAt: now,
+      market: intent.market,
+      dex: parsed.dex,
+      assetId: snapshot.assetId,
+    };
     const ctx = {
       now,
       frozen: this.state.frozen,
       freezeReason: this.state.freezeReason,
-      market: {
-        market: intent.market,
-        markPx: evalMark,
-        funding: snapshot.funding,
-        openInterest: snapshot.openInterest,
-        depthWithinBand: snapshot.depthWithinBand,
-        szDecimals: snapshot.szDecimals,
-      },
-      account: {
-        equityUsd: account.equityUsd,
-        availableMarginUsd: account.availableMarginUsd,
-        dailyRealizedPnlUsd: this.state.dailyRealizedPnlUsd,
-        currentPositionNotionalUsd: Math.abs(positionSize) * evalMark,
-        currentPositionSize: positionSize,
-      },
-      history: this.state.history,
+      market: evalMarket,
+      account: evalAccount,
+      history: evalHistory,
     };
 
     // 3. Deterministic evaluation — the model never gets a vote here.
     const decision = evaluateIntent(intent, this.policy.policy, ctx);
     decision.snapshot["mark_px_read"] = snapshot.markPx;
     decision.snapshot["mark_px_write"] = execMark;
-    this.audit.recordAndSay(
+
+    // 3a. Verifiable decision record: archive the FULL input under its content
+    // address and bind the verdict to it. Anyone can re-run evaluateIntent on
+    // the archived input and must reproduce this exact verdict + rule trace.
+    const decisionInput = buildDecisionInput({
+      intent,
+      policy: this.policy.policy,
+      policyBytesHash: this.policy.contentHash,
+      market: evalMarket,
+      account: evalAccount,
+      history: evalHistory,
+      frozen: this.state.frozen,
+      ...(this.state.freezeReason !== undefined ? { freezeReason: this.state.freezeReason } : {}),
+      now,
+      marketSource,
+    });
+    const inputsHash = this.archiveDecisionInput(decisionInput);
+    const verdictHash = verdictHashOf(decision);
+    // The commitment is consumed by exactly one verdict.
+    const adviceHash = this.pendingAdviceHash;
+    this.pendingAdviceHash = undefined;
+    this.recordReceipt(
       "decision",
       { intent_id: intent.id, ...decision },
       `[${decision.decision}] ${decision.message_zh} / ${decision.message_en}`,
+      {
+        ...this.baseReceipt(),
+        inputsHash,
+        verdictHash,
+        ...(adviceHash ? { aiAdviceHash: adviceHash } : {}),
+      },
     );
     if (decision.decision === "deny") {
       this.pushHistory({ ts: now, market: intent.market, side: intent.side, kind: "deny" });
@@ -338,10 +460,30 @@ export class RiskBroker {
         frozen: true,
         freezeReason: this.state.freezeReason,
       });
-      this.audit.recordAndSay(
+      // The late freeze is a verdict too — give it the same treatment as the
+      // first evaluation so the frozen decision is itself reproducible.
+      const lateNow = Date.now();
+      const lateInput = buildDecisionInput({
+        intent,
+        policy: this.policy.policy,
+        policyBytesHash: this.policy.contentHash,
+        market: evalMarket,
+        account: evalAccount,
+        history: evalHistory,
+        frozen: true,
+        ...(this.state.freezeReason !== undefined ? { freezeReason: this.state.freezeReason } : {}),
+        now: lateNow,
+        marketSource,
+      });
+      this.recordReceipt(
         "decision",
         { intent_id: intent.id, late_freeze_check: true, ...late },
         `[deny] 签名前复查：已冻结 / frozen between evaluation and signing — order not sent`,
+        {
+          ...this.baseReceipt(),
+          inputsHash: this.archiveDecisionInput(lateInput),
+          verdictHash: verdictHashOf(late),
+        },
       );
       this.pushHistory({ ts: Date.now(), market: intent.market, side: intent.side, kind: "deny" });
       this.recordProcessed(intent.id, { decision: late, ts: now });
@@ -364,29 +506,36 @@ export class RiskBroker {
       // burned: a retry returns this record instead of re-sending, and the
       // next reconciliation window settles what really happened.
       const message = err instanceof Error ? err.message : String(err);
-      this.audit.recordAndSay(
+      // Outcome at the venue is UNKNOWN — record it against the verdict that
+      // authorised the attempt, so a later reconciliation has something to
+      // settle against instead of an unexplained gap.
+      this.recordReceipt(
         "error",
         { where: "placeOrder", intent_id: intent.id, error: message },
         `[error] 下单失败，意图作废不重试 / order write failed, intent burned: ${message}`,
+        { ...this.baseReceipt(), inputsHash, verdictHash },
       );
       this.recordProcessed(intent.id, { decision, error: message, ts: now });
       this.saveState();
       return { decision, error: message };
     }
+    const orderAt = Date.now();
     if (placed.filledSize > 0) {
       // Only REAL fills count — a resting/unfilled order must never feed
       // the FOMO counter or the ledger.
-      this.pushHistory({ ts: Date.now(), market: intent.market, side: intent.side, kind: "fill" });
-      this.audit.recordAndSay(
+      this.pushHistory({ ts: orderAt, market: intent.market, side: intent.side, kind: "fill" });
+      this.recordReceipt(
         "order_placed",
-        { intent_id: intent.id, ...placed },
+        { intent_id: intent.id, market: intent.market, side: intent.side, at: orderAt, ...placed },
         `[fill] 测试网成交 / testnet fill: ${placed.filledSize} @ ${placed.avgPx} (oid ${placed.oid})`,
+        { ...this.baseReceipt(), inputsHash, verdictHash, orderIds: [placed.oid] },
       );
     } else {
-      this.audit.recordAndSay(
+      this.recordReceipt(
         "order_placed",
-        { intent_id: intent.id, ...placed },
+        { intent_id: intent.id, market: intent.market, side: intent.side, at: orderAt, ...placed },
         `[order] 未成交 / allowed but not filled (status ${placed.status}, oid ${placed.oid})`,
+        { ...this.baseReceipt(), inputsHash, verdictHash, orderIds: [placed.oid] },
       );
     }
 
@@ -504,25 +653,147 @@ export class RiskBroker {
   freeze(reason: string): void {
     this.state.frozen = true;
     this.state.freezeReason = reason;
-    this.saveState();
-    this.audit.recordAndSay(
+    // Bind the freeze to its own receipt: a human unfreeze must name THIS
+    // freeze, so an old authorisation can never release a later one.
+    const event = this.recordReceipt(
       "freeze",
       { reason },
       `[freeze] 总闸冻结 / BROKER FROZEN: ${reason}`,
+      this.baseReceipt(),
     );
+    this.state.freezeReceipt = { seq: event.seq, hash: event.hash };
+    this.saveState();
+    this.notifyFreeze(reason);
   }
 
-  /** Human-only escape hatch. There is no API for a model to call here. */
-  unfreeze(confirmation: string): void {
+  /** The state a human unfreeze must be cryptographically bound to. */
+  freezeBinding(): { seq: number; hash: string } | null {
+    if (!this.state.frozen) return null;
+    if (this.state.freezeReceipt) return this.state.freezeReceipt;
+    const head = this.audit.head;
+    return { seq: head.seq, hash: head.hash };
+  }
+
+  /** Optional outbound alert. Failure is audited and never blocks the freeze. */
+  private notifyFreeze(reason: string): void {
+    const raw = process.env.VETOOS_FREEZE_WEBHOOK;
+    if (!raw) return;
+    let target: URL;
+    try {
+      target = new URL(raw);
+    } catch {
+      return;
+    }
+    if (target.protocol !== "http:" && target.protocol !== "https:") return;
+    void fetch(target.toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        event: "vetoos.freeze",
+        reason,
+        ts: new Date().toISOString(),
+        policyHash: this.policy.contentHash,
+      }),
+    }).catch((err: unknown) => {
+      this.audit.record("error", {
+        where: "freezeWebhook",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  /**
+   * Human-only escape hatch. There is no API for a model to call here.
+   *
+   * `auth` carries a wallet signature over the CURRENT freeze binding plus a
+   * one-time nonce; it is recorded in the unfreeze receipt so "who released
+   * which freeze" is independently checkable. The local token path (CLI)
+   * passes no auth and is labelled as such.
+   */
+  unfreeze(
+    confirmation: string,
+    auth?: { address: string; signature: string; nonce: string; boundTo: string },
+  ): void {
     if (confirmation !== "I_AM_HUMAN") {
       throw new Error('unfreeze requires explicit human confirmation: --confirm I_AM_HUMAN');
     }
+    if (auth) {
+      const used = this.state.usedUnfreezeNonces ?? [];
+      if (used.includes(auth.nonce)) {
+        throw new Error("unfreeze authorisation already spent (nonce replayed)");
+      }
+      const binding = this.state.freezeReceipt;
+      const expected = binding ? String(binding.seq) : "";
+      if (!binding || auth.boundTo !== expected) {
+        throw new Error(
+          `unfreeze authorisation is not bound to the current freeze (expected seq ${expected || "none"}, got ${auth.boundTo})`,
+        );
+      }
+      this.state.usedUnfreezeNonces = [...used, auth.nonce].slice(-100);
+    }
+    const receipt = {
+      ...this.baseReceipt(),
+      ...(auth
+        ? {
+            humanAuth: {
+              address: auth.address,
+              signature: auth.signature,
+              boundTo: auth.boundTo,
+            },
+          }
+        : {}),
+    };
     this.state.frozen = false;
     delete this.state.freezeReason;
     // A human reset also clears the tampered ledger window for a fresh start.
     this.state.baseline = undefined;
+    this.state.freezeReceipt = undefined;
     this.saveState();
-    this.audit.recordAndSay("unfreeze", {}, `[unfreeze] 人工解冻 / human unfreeze confirmed`);
+    this.recordReceipt(
+      "unfreeze",
+      { via: auth ? "wallet-signature" : "local-token", ...(auth ? { signer: auth.address } : {}) },
+      `[unfreeze] 人工解冻 / human unfreeze confirmed (${auth ? "wallet-signature" : "local-token"})`,
+      receipt,
+    );
+  }
+
+  /**
+   * AI commit phase: lock in the advice digest BEFORE the verdict exists.
+   * The verdict that follows binds this hash into its receipt, so the advice
+   * cannot be rewritten (or quietly dropped) once the outcome is known.
+   */
+  commitAdvice(
+    adviceHash: string,
+    meta: { modelId?: string; promptHash?: string } = {},
+  ): AuditEvent {
+    this.pendingAdviceHash = adviceHash;
+    return this.recordReceipt(
+      "ai_commit",
+      { adviceHash, ...meta },
+      `[ai] 建议已承诺 / advice committed ${adviceHash.slice(0, 12)}… (model ${meta.modelId ?? "n/a"})`,
+      { ...this.baseReceipt(), aiAdviceHash: adviceHash },
+    );
+  }
+
+  /**
+   * AI reveal phase: publish the advice that opens the earlier commitment.
+   * Rejects a reveal whose (nonce, advice) does not reproduce the committed
+   * digest, or one that no verdict ever bound — both are dishonest history.
+   */
+  revealAdvice(nonce: string, advice: unknown): AuditEvent {
+    const adviceHash = commitmentHash(nonce, advice);
+    const bound = this.audit.events().some((e) => e.aiAdviceHash === adviceHash);
+    if (!bound) {
+      throw new Error(
+        "reveal does not match any committed advice bound to a verdict (wrong nonce, or never committed)",
+      );
+    }
+    return this.recordReceipt(
+      "ai_reveal",
+      { adviceHash, nonce, advice },
+      `[ai] 建议已揭示 / advice revealed ${adviceHash.slice(0, 12)}…`,
+      { ...this.baseReceipt(), aiAdviceHash: adviceHash },
+    );
   }
 
   /** DEMO ONLY: seed same-side history so the FOMO act fits in 3 minutes. */

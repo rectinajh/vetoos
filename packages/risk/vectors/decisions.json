@@ -1,0 +1,810 @@
+{
+  "schema": "vetoos.vectors/1",
+  "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+  "note": "Golden conformance vectors: re-run evaluateIntent on each input and you must obtain verdictHash.",
+  "vectors": [
+    {
+      "name": "allow: small order inside every limit",
+      "expected": {
+        "decision": "allow",
+        "code": "ALLOW"
+      },
+      "verdictHash": "5c1e22418f2229d08ade2f46a93d327292b48c4e38db5b2bfee51fd54a696976",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [],
+        "intent": {
+          "id": "777132ac-5bdd-416b-8099-cac7379a05d7",
+          "market": "xyz:XYZ100",
+          "order_type": "market",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "0.001",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "allow: reduce-only exits are exempt from the FOMO guards",
+      "expected": {
+        "decision": "allow",
+        "code": "ALLOW"
+      },
+      "verdictHash": "96a1078413df09a5bdda1be23d7aaf074f29c15cf7550d4b7cf7d1528ec1ecb1",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 62,
+          "currentPositionSize": 0.002,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [
+          {
+            "kind": "fill",
+            "market": "xyz:XYZ100",
+            "side": "buy",
+            "ts": 1699999940000
+          },
+          {
+            "kind": "fill",
+            "market": "xyz:XYZ100",
+            "side": "buy",
+            "ts": 1699999880000
+          },
+          {
+            "kind": "fill",
+            "market": "xyz:XYZ100",
+            "side": "buy",
+            "ts": 1699999820000
+          },
+          {
+            "kind": "fill",
+            "market": "xyz:XYZ100",
+            "side": "buy",
+            "ts": 1699999760000
+          },
+          {
+            "kind": "fill",
+            "market": "xyz:XYZ100",
+            "side": "buy",
+            "ts": 1699999700000
+          }
+        ],
+        "intent": {
+          "id": "635e6a0c-cb2e-4c48-9f04-66b9f38248de",
+          "market": "xyz:XYZ100",
+          "order_type": "market",
+          "reduce_only": true,
+          "side": "sell",
+          "size": "0.001",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "deny: notional above the single-order cap",
+      "expected": {
+        "decision": "deny",
+        "code": "NOTIONAL_EXCEEDED"
+      },
+      "verdictHash": "5b4bd58cdc4e2920eb200e85b0a39385999c959f53db07364276e3973b1d9435",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [],
+        "intent": {
+          "id": "0c1a45d9-cdfa-4934-8ef3-655d0cbb5b01",
+          "market": "xyz:XYZ100",
+          "order_type": "market",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "1",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "deny: leverage above the cap",
+      "expected": {
+        "decision": "deny",
+        "code": "LEVERAGE_EXCEEDED"
+      },
+      "verdictHash": "9b192590728f54660ce06424373b99cd5e7858c43a874bfeae0013623b82da3a",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 100
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [],
+        "intent": {
+          "id": "84218915-bc30-4170-9adf-03a3842e45cc",
+          "market": "xyz:XYZ100",
+          "order_type": "market",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "0.02",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "deny: daily-loss circuit breaker already tripped",
+      "expected": {
+        "decision": "deny",
+        "code": "DAILY_LOSS_CIRCUIT_BREAKER"
+      },
+      "verdictHash": "1e9b07f802dbb05de102a4fa5b1b82bd08c9427e54bdd90cbcc746c2e8254798",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": -250,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [],
+        "intent": {
+          "id": "843d53eb-1d83-4647-b212-fa5e026227eb",
+          "market": "xyz:XYZ100",
+          "order_type": "market",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "0.001",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "deny: same-side add count in the last hour",
+      "expected": {
+        "decision": "deny",
+        "code": "FOMO_SAME_SIDE_ADDS"
+      },
+      "verdictHash": "743915c98bc4c6cf79ec762a086f095d586b489866db4f44a8fe80ad4da360f1",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [
+          {
+            "kind": "fill",
+            "market": "xyz:XYZ100",
+            "side": "buy",
+            "ts": 1699999700000
+          },
+          {
+            "kind": "fill",
+            "market": "xyz:XYZ100",
+            "side": "buy",
+            "ts": 1699999400000
+          },
+          {
+            "kind": "fill",
+            "market": "xyz:XYZ100",
+            "side": "buy",
+            "ts": 1699999100000
+          }
+        ],
+        "intent": {
+          "id": "d1b5b104-dfd9-4025-9b36-9d9c3cd4900f",
+          "market": "xyz:XYZ100",
+          "order_type": "market",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "0.001",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "deny: frozen broker outranks everything else",
+      "expected": {
+        "decision": "deny",
+        "code": "FROZEN"
+      },
+      "verdictHash": "69661eb39a50eae2332e149b8fa4caae587182b9944b98198801b1d2e0d51338",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "freezeReason": "reconcile mismatch",
+        "frozen": true,
+        "history": [],
+        "intent": {
+          "id": "13714c53-2ddb-4a29-bb1a-3d5b5f7196df",
+          "market": "xyz:XYZ100",
+          "order_type": "market",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "0.001",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "deny: no market data fails closed",
+      "expected": {
+        "decision": "deny",
+        "code": "NO_MARKET_DATA"
+      },
+      "verdictHash": "88d9d106ae63b4cde39de8f5dfab9dc585162abc5bbeb0cd38ea6e79267b0bb3",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [],
+        "intent": {
+          "id": "8b04b029-d6eb-4500-b521-b0a083e58ca1",
+          "market": "xyz:XYZ100",
+          "order_type": "market",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "0.001",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 0,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "deny: book too thin for the size",
+      "expected": {
+        "decision": "deny",
+        "code": "BOOK_DEPTH"
+      },
+      "verdictHash": "d5b2f5d406cc6c7d0942cd7f44cb0030d76a452f7fc66dab48158bb3c51351e5",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [],
+        "intent": {
+          "id": "e0d76ed7-33ab-49f3-8b67-f9817ba3d310",
+          "market": "xyz:XYZ100",
+          "order_type": "market",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "0.01",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 0.0001,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "deny: market not on the allow-list",
+      "expected": {
+        "decision": "deny",
+        "code": "MARKET_NOT_ALLOWED"
+      },
+      "verdictHash": "377b7c87ba62107a794e0fc00cecbaed2fb98378ec3365f9b739257a210b9d40",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [],
+        "intent": {
+          "id": "1009b044-e1b0-4f0e-ae05-34e26d7c3632",
+          "market": "NOTLISTED",
+          "order_type": "market",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "0.001",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "deny: post-deny cool-down still active",
+      "expected": {
+        "decision": "deny",
+        "code": "FOMO_COOLDOWN"
+      },
+      "verdictHash": "633482a36ac7461128d91d55c19f35f045e9cf0983e7bfa04076b63acd72fb77",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [
+          {
+            "kind": "deny",
+            "market": "xyz:XYZ100",
+            "side": "buy",
+            "ts": 1699999995000
+          }
+        ],
+        "intent": {
+          "id": "db58ae9c-bd3e-4a16-b031-ab585b26edeb",
+          "market": "xyz:XYZ100",
+          "order_type": "market",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "0.001",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    },
+    {
+      "name": "deny: limit price too far from the oracle mark",
+      "expected": {
+        "decision": "deny",
+        "code": "ORACLE_DEVIATION"
+      },
+      "verdictHash": "4774b1cb858ab5cd1ea93088e6723879a05919483d6a2c45e5b5b6c43f4fa82f",
+      "input": {
+        "account": {
+          "availableMarginUsd": 1000,
+          "currentPositionNotionalUsd": 0,
+          "currentPositionSize": 0,
+          "dailyRealizedPnlUsd": 0,
+          "equityUsd": 1000
+        },
+        "engineVersion": "risk/1.0.0",
+        "frozen": false,
+        "history": [],
+        "intent": {
+          "id": "102ed187-ce01-4e49-a280-7d033d35166f",
+          "limit_px": "20000",
+          "market": "xyz:XYZ100",
+          "order_type": "limit",
+          "reduce_only": false,
+          "side": "buy",
+          "size": "0.001",
+          "source": "strategy-a",
+          "ts": "2023-11-14T22:13:20.000Z",
+          "version": "0.1"
+        },
+        "market": {
+          "depthWithinBand": 5,
+          "funding": 0.00000625,
+          "markPx": 31000,
+          "market": "xyz:XYZ100",
+          "openInterest": 7500,
+          "szDecimals": 3
+        },
+        "now": 1700000000000,
+        "policy": {
+          "allowed_markets": [
+            "xyz:XYZ100",
+            "BTC"
+          ],
+          "cooldown_seconds_after_deny": 30,
+          "default_dex": "xyz",
+          "default_market": "xyz:XYZ100",
+          "freeze_on_reconcile_mismatch": true,
+          "max_daily_loss_usd": 200,
+          "max_leverage": 5,
+          "max_oracle_deviation_bps": 500,
+          "max_order_notional_usd": 1000,
+          "max_orders_per_minute": 10,
+          "max_same_side_adds_per_hour": 3,
+          "min_book_depth_multiple": 2,
+          "network_mode": "mainnet_read_testnet_trade_preferred",
+          "version": "0.1"
+        },
+        "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
+        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "schema": "vetoos.decision/1"
+      }
+    }
+  ]
+}

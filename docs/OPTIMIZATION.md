@@ -24,7 +24,7 @@
 | P1-11 周期对账 | ✅ | `reconcileTick` 60s：全会话对账 + openOrders 扫描 + PnL 刷新 |
 | P1-12 多进程 | ✅ | `brokerd.lock` + CLI 经 HTTP 转发；demo/reset 运行中拒绝 |
 | P1-13 XSS | ✅ | `esc()` 覆盖全部 innerHTML |
-| P1-14 服务端测试 | ✅ | `app.test.ts` 15 例，总计 116 测试 |
+| P1-14 服务端测试 | ✅ | `app.test.ts` 15 例，总计 121 测试 |
 | P1-15 价格精度 | ✅ | `roundPrice`（5 有效数字 ∧ 6−szDecimals 小数）+ `roundSize` 浮点修正 |
 | P1-16 公开证据 | ✅ | `docs/EVIDENCE.md` |
 | P1-17 英文材料 | ✅ | `docs/PRD.md` / `docs/ARCHITECTURE.md` 英文重写，中文移至 `docs/zh/` |

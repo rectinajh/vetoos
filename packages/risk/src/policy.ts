@@ -18,6 +18,13 @@ export const policySchema = z.object({
   cooldown_seconds_after_deny: z.number().int().nonnegative(),
   max_same_side_adds_per_hour: z.number().int().positive(),
   min_book_depth_multiple: z.number().positive(),
+  /**
+   * Max distance of a caller-supplied limit price from the venue mark, in
+   * basis points. Hyperliquid rejects "Price too far from oracle"; this
+   * stops the order before it is signed. Omitted policies default to 500
+   * (5%), matching the adapter's market-order clamp.
+   */
+  max_oracle_deviation_bps: z.number().positive().default(500),
   freeze_on_reconcile_mismatch: z.boolean(),
   default_dex: z.string(),
   default_market: z.string(),

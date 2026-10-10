@@ -45,13 +45,22 @@ outrank claims.
   builder-code attribution placeholder.
 - TypeScript monorepo: `@nktkas/hyperliquid`, viem (EIP-191 unfreeze), zod, vitest, pnpm.
 
+### Hyperliquid-track alignment (what the resources page asks for)
+- **Asset IDs.** HIP-3: `100000 + dexIndex * 10000 + metaIndex`. `xyz:XYZ100` is `110000` on mainnet (dex 1) and `750000` on testnet (dex 65). Main-dex BTC is plain index `0`.
+- **Tick and lot.** Prices rounded to ≤ 5 significant figures and ≤ `6 − szDecimals` decimals before signing. Sizes floored to the lot, with the float-boundary snap so `0.0012` does not become `0.0011`.
+- **Oracle band.** A caller limit more than `max_oracle_deviation_bps` (default 500) from the mark is denied in the trace (`ORACLE_DEVIATION`) instead of being rejected by the venue after signing. Market orders are clamped to the same band by the adapter.
+- **Agent wallet and nonces.** One agent key, only inside the broker process. `brokerd.lock` is the single writer, so two processes cannot race nonces on the same account. Concurrent duplicate intent ids share one in-flight order and one venue `cloid`.
+- **Info vs Exchange.** Vetoes read mainnet info (`perpDexs`, `metaAndAssetCtxs`, `l2Book`). Fills are testnet exchange actions. Builder dexes use their own `clearinghouseState { dex }`.
+- **Streams.** Fill truth is a 60s reconcile loop plus per-order position snapshots, not a WebSocket. That is deliberate fail-closed polling; a reconnecting `userFills` stream is filed as a follow-up, not claimed as done.
+- **Builder code.** Optional on every order via `HL_BUILDER_ADDRESS` and `HL_BUILDER_FEE_TENTHS_BPS`. Unset means the field is omitted — we do not invent an address.
+
 ### Team
 - **TODO (needs the team's own words — cannot be invented):** one line per member:
   name · background (e.g. "quant dev, 5y market-making infra") · city/country.
   Also decide who is the **team leader** who uploads the submission (§6b).
 
 ### Logo
-`assets/logo.svg` — "the brake with a checkmark". Export a PNG before upload.
+`assets/logo.svg` and `assets/logo.png` (1024×1024) — the brake with a checkmark. Upload the PNG.
 
 ### Repository
 https://github.com/rectinajh/vetoos — public, MIT. Prior-development disclosure below.
@@ -68,7 +77,7 @@ code was reused.
 
 | Criterion | Our answer | Where it shows |
 |---|---|---|
-| Functionality | Working broker as a SERVICE: HTTP API, idempotent + concurrency-safe submissions (venue cloid), allow→real fill→reconcile, deny paths, freeze, background session reconcile, hash-chained audit; 116 tests green incl. route-level tests | demo video, repo, [EVIDENCE.md](EVIDENCE.md) |
+| Functionality | Working broker as a SERVICE: HTTP API, idempotent + concurrency-safe submissions (venue cloid), allow→real fill→reconcile, deny paths, freeze, background session reconcile, hash-chained audit; 121 tests green incl. route-level tests | demo video, repo, [EVIDENCE.md](EVIDENCE.md) |
 | Potential impact | Every bot/AI trading on HL needs a trustworthy kill switch; HIP-3 multiplies the venues that need it; policy templates make it usable day one | pitch video, GTM |
 | Novelty | Power structure is the product: proposal/veto separation + fill-truth layer + anti-FOMO guards; reference AI proposer shows both ends of the paradigm; AI radar is advisory only | pitch video |
 | UX | Risk-terminal console: live gate animation per rule, risk radar, counterfactual "loss blocked", freeze takeover; plain-language bilingual deny reasons; human-only unfreeze | console screenshot, demo video |

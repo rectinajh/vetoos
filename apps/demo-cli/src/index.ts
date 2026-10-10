@@ -21,8 +21,10 @@ import { loadPolicy } from "@vetoos/risk";
 import { RiskBroker } from "./broker.js";
 import { assertPolicyExists, loadConfig, type CliConfig } from "./config.js";
 import { runDemo, resolveTradeMarket } from "./demo.js";
+import { receiptSignerFor } from "./keys.js";
 import { runDoctor } from "./doctor.js";
 import { runInit } from "./init.js";
+import { verifyCommand } from "./verify.js";
 
 export function parseFlags(argv: string[]): Record<string, string | boolean> {
   const flags: Record<string, string | boolean> = {};
@@ -46,7 +48,7 @@ async function buildBroker(config: CliConfig, initNetwork: boolean): Promise<Ris
   const policy = loadPolicy(config.policyPath);
   const adapter = new HlAdapter(config);
   const audit = new AuditLog(config.stateDir, policy.contentHash);
-  const broker = new RiskBroker(policy, adapter, audit, config.stateDir);
+  const broker = new RiskBroker(policy, adapter, audit, config.stateDir, undefined, receiptSignerFor(config)?.sign);
   if (initNetwork) await broker.init(); // fail closed on missing real data
   return broker;
 }
@@ -117,6 +119,11 @@ async function main(): Promise<number> {
     case "init":
       return runInit(flags);
 
+    case "verify":
+      // Not a broker command: reads receipts + archives, needs no keys and no
+      // state lock, so it can run while the daemon is live (judges can run it).
+      return await verifyCommand(rest);
+
     case "demo": {
       if (flags["offline"] === true) {
         // Judges' mode: same broker, same engine, same four acts — canned venue.
@@ -126,7 +133,8 @@ async function main(): Promise<number> {
         const policy = loadPolicy(offline.policyPath);
         const adapter = new FixtureAdapter();
         const audit = new AuditLog(offline.stateDir, policy.contentHash);
-        const broker = new RiskBroker(policy, adapter, audit, offline.stateDir);
+        const broker = new RiskBroker(policy, adapter, audit, offline.stateDir, undefined, receiptSignerFor(offline)?.sign);
+
         await broker.init();
         console.log(`[offline] FIXTURE VENUE — no keys, no network; simulated fills; ephemeral state in ${offline.stateDir}`);
         await runDemo(broker, adapter, policy, {
@@ -245,6 +253,8 @@ async function main(): Promise<number> {
   pnpm demo --auto                           run all four demo acts
   pnpm demo --step N                         run only act N (1-4, for recording)
   pnpm demo --offline                        four acts on a canned venue (no keys / network)
+  pnpm verify                                verify receipts: chain, signatures, replay, anchor
+  pnpm verify --prove N                      Merkle inclusion proof for receipt N
   pnpm broker status                         broker state snapshot
   pnpm broker submit --file intent.json      submit an Intent IR payload
   pnpm broker unfreeze --confirm I_AM_HUMAN  human-only reset after a freeze

@@ -5,7 +5,7 @@
  * entry point (config, key loading, listen) lives in server.ts.
  */
 
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -38,6 +38,58 @@ export const TTL = {
 
 /** Background loop cadence: whole-session reconcile + daily PnL refresh. */
 export const RECONCILE_LOOP_MS = 60_000;
+
+/** How long a human unfreeze authorisation stays valid. */
+export const UNFREEZE_TTL_MS = 10 * 60_000;
+
+export interface UnfreezeAuthorisation {
+  action: string;
+  frozenAtSeq: string;
+  chainHead: string;
+  nonce: string;
+  expiresAt: string;
+}
+
+/**
+ * The exact bytes a human signs. Deliberately NOT a free-form string: it names
+ * the freeze it releases (seq + chain head) and carries a one-time nonce, so an
+ * authorisation for yesterday's freeze cannot open today's.
+ */
+export function unfreezeMessage(a: {
+  seq: number;
+  chainHead: string;
+  nonce: string;
+  expiresAt: string;
+}): string {
+  return [
+    "VetoOS human unfreeze",
+    "action=UNFREEZE",
+    "frozenAtSeq=" + a.seq,
+    "chainHead=" + a.chainHead,
+    "nonce=" + a.nonce,
+    "expiresAt=" + a.expiresAt,
+  ].join("\n");
+}
+
+/** Parse and shape-check an unfreeze authorisation. Returns null when malformed. */
+export function parseUnfreezeMessage(message: string): UnfreezeAuthorisation | null {
+  const lines = message.split("\n");
+  if (lines[0]?.trim() !== "VetoOS human unfreeze") return null;
+  const fields: Record<string, string> = {};
+  for (const line of lines.slice(1)) {
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+    fields[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  }
+  const action = fields["action"];
+  const frozenAtSeq = fields["frozenAtSeq"];
+  const chainHead = fields["chainHead"];
+  const nonce = fields["nonce"];
+  const expiresAt = fields["expiresAt"];
+  if (action !== "UNFREEZE" || !frozenAtSeq || !chainHead || !nonce || !expiresAt) return null;
+  if (!Number.isFinite(Date.parse(expiresAt))) return null;
+  return { action, frozenAtSeq, chainHead, nonce, expiresAt };
+}
 
 export interface AppOptions {
   /** When set, POSTs (and GETs if `protectReads`) require this token. */
@@ -510,39 +562,115 @@ export async function route(ctx: Context, req: IncomingMessage, res: ServerRespo
     json(res, 200, { tampered: true, reconcile: result, frozen: ctx.broker.frozen });
     return;
   }
+  if (method === "POST" && path === "/v1/ai/commit") {
+    // Commit phase: the advice digest is locked in BEFORE the verdict exists,
+    // so the record cannot be back-dated once the outcome is known.
+    const body = (await readBody(req)) as { adviceHash?: string; modelId?: string; promptHash?: string };
+    const adviceHash = String(body.adviceHash ?? "");
+    if (!/^[0-9a-f]{64}$/.test(adviceHash)) {
+      throw new HttpError(400, "adviceHash must be a 64-char sha256 hex digest of commitmentHash(nonce, advice)");
+    }
+    const event = ctx.broker.commitAdvice(adviceHash, {
+      ...(body.modelId ? { modelId: String(body.modelId) } : {}),
+      ...(body.promptHash ? { promptHash: String(body.promptHash) } : {}),
+    });
+    json(res, 200, { seq: event.seq, adviceHash, receiptHash: event.hash });
+    return;
+  }
+  if (method === "POST" && path === "/v1/ai/reveal") {
+    // Reveal phase: publish the advice that opens the earlier commitment. The
+    // broker rejects it unless some verdict actually bound that commitment.
+    const body = (await readBody(req)) as { nonce?: string; advice?: unknown };
+    if (!body.nonce) throw new HttpError(400, "reveal requires the nonce used at commit time");
+    try {
+      const event = ctx.broker.revealAdvice(String(body.nonce), body.advice);
+      json(res, 200, { seq: event.seq, adviceHash: event.aiAdviceHash });
+    } catch (err) {
+      throw new HttpError(409, err instanceof Error ? err.message : String(err));
+    }
+    return;
+  }
+  if (method === "GET" && path === "/v1/freeze-binding") {
+    // What a human must sign to release the CURRENT freeze. The nonce is
+    // one-time and the binding names the exact frozen state, so a signature
+    // can never be replayed against a later freeze.
+    const binding = ctx.broker.freezeBinding();
+    if (!binding) {
+      json(res, 200, { frozen: false, binding: null });
+      return;
+    }
+    const nonce = randomUUID();
+    const expiresAt = new Date(Date.now() + UNFREEZE_TTL_MS).toISOString();
+    json(res, 200, {
+      frozen: true,
+      binding,
+      expiresAt,
+      message: unfreezeMessage({ seq: binding.seq, chainHead: binding.hash, nonce, expiresAt }),
+    });
+    return;
+  }
   if (method === "POST" && path === "/v1/unfreeze") {
     const body = (await readBody(req).catch(() => ({}))) as { address?: string; message?: string; signature?: `0x${string}` };
     let via: string | null = null;
+    let auth: { address: string; signature: string; nonce: string; boundTo: string } | undefined;
     if (body.address && body.message && body.signature) {
-      // Path A: wallet-signed proof of humanity (EIP-191), operator account only.
-      const fresh = Date.now() - Date.parse(body.message.replace("VetoOS human unfreeze\n", "")) < 120_000;
-      let valid = false;
-      try {
-        valid =
-          fresh &&
-          body.address.toLowerCase() === (ctx.config.accountAddress ?? "").toLowerCase() &&
-          (await verifyMessage({ address: body.address as `0x${string}`, message: body.message, signature: body.signature }));
-      } catch {
-        valid = false;
+      // Path A: wallet-signed proof of humanity (EIP-191), operator account
+      // only, and BOUND to the frozen state it releases.
+      const parsed = parseUnfreezeMessage(body.message);
+      const binding = ctx.broker.freezeBinding();
+      const problems: string[] = [];
+      if (!parsed) problems.push("message is not a VetoOS unfreeze authorisation");
+      if (parsed && Date.parse(parsed.expiresAt) < Date.now()) problems.push("authorisation expired");
+      if (parsed && !binding) problems.push("broker is not frozen");
+      if (parsed && binding && parsed.frozenAtSeq !== String(binding.seq)) {
+        problems.push("authorisation names freeze seq " + parsed.frozenAtSeq + ", current is " + binding.seq);
       }
-      if (!valid) {
-        json(res, 403, { error: "wallet signature invalid, stale, or not the operator account" });
+      if (parsed && binding && parsed.chainHead !== binding.hash) {
+        problems.push("authorisation names a different chain head");
+      }
+      let signatureOk = false;
+      if (problems.length === 0) {
+        try {
+          signatureOk =
+            body.address.toLowerCase() === (ctx.config.accountAddress ?? "").toLowerCase() &&
+            (await verifyMessage({
+              address: body.address as `0x${string}`,
+              message: body.message,
+              signature: body.signature,
+            }));
+        } catch {
+          signatureOk = false;
+        }
+        if (!signatureOk) problems.push("signature is not from the operator account");
+      }
+      if (problems.length > 0 || !parsed) {
+        json(res, 403, {
+          error: problems.join("; ") || "invalid unfreeze authorisation",
+          hint: "GET /v1/freeze-binding returns the exact message to sign",
+        });
         return;
       }
+      auth = {
+        address: body.address,
+        signature: body.signature,
+        nonce: parsed.nonce,
+        boundTo: parsed.frozenAtSeq,
+      };
       via = "wallet-signature";
     } else if (req.headers[HUMAN_HEADER] === HUMAN_TOKEN) {
-      // Path B: explicit human header (CLI / judges without a wallet).
+      // Path B: explicit human header (CLI / judges without a wallet). No
+      // cryptographic binding — the unfreeze receipt records it as such.
       via = "local-token";
     }
     if (!via) {
       json(res, 403, { error: `unfreeze requires a wallet signature (operator account) or header ${HUMAN_HEADER}: ${HUMAN_TOKEN}` });
       return;
     }
-    ctx.broker.unfreeze(HUMAN_TOKEN);
+    ctx.broker.unfreeze(HUMAN_TOKEN, auth);
     // A human reset re-baselines the session so the background loop measures
     // from the clean state, not from the tampered window.
     await ctx.broker.setBaseline(ctx.tradeMarket).catch(() => undefined);
-    json(res, 200, { frozen: ctx.broker.frozen, via });
+    json(res, 200, { frozen: ctx.broker.frozen, via, ...(auth ? { boundTo: auth.boundTo } : {}) });
     return;
   }
   json(res, 404, { error: `no route: ${method} ${path}` });

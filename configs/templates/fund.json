@@ -8,6 +8,7 @@
   "cooldown_seconds_after_deny": 60,
   "max_same_side_adds_per_hour": 2,
   "min_book_depth_multiple": 3.0,
+  "max_oracle_deviation_bps": 500,
   "freeze_on_reconcile_mismatch": true,
   "default_dex": "xyz",
   "default_market": "xyz:XYZ100",

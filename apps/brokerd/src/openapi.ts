@@ -126,7 +126,13 @@ export function renderOpenApi(): Record<string, unknown> {
                   description: "EIP-191 personal_sign proof by the operator account (alternative to the header)",
                   properties: {
                     address: { type: "string" },
-                    message: { type: "string", example: "VetoOS human unfreeze\\n2026-10-10T12:00:00.000Z" },
+                    message: {
+                      type: "string",
+                      description:
+                        "Structured authorisation from GET /v1/freeze-binding. Free-form messages are rejected.",
+                      example:
+                        "VetoOS human unfreeze\naction=UNFREEZE\nfrozenAtSeq=412\nchainHead=9f3c...\nnonce=...\nexpiresAt=2026-10-10T12:10:00.000Z",
+                    },
                     signature: { type: "string" },
                   },
                 },
@@ -136,6 +142,66 @@ export function renderOpenApi(): Record<string, unknown> {
           responses: {
             "200": { description: "Broker unfrozen; session baseline reset" },
             "403": { description: "Missing/invalid human proof" },
+          },
+        },
+      },
+      "/v1/freeze-binding": {
+        get: {
+          summary: "The exact message a human must sign to release the current freeze",
+          description:
+            "Names the frozen state (frozenAtSeq + chain head) and carries a one-time nonce and an expiry, " +
+            "so an authorisation for one freeze can never release another.",
+          responses: {
+            "200": { description: "frozen / binding / message / expiresAt; binding is null when not frozen" },
+          },
+        },
+      },
+      "/v1/ai/commit": {
+        post: {
+          summary: "AI commit phase: lock in the advice digest BEFORE the verdict exists",
+          description:
+            "adviceHash is commitmentHash(nonce, advice). The next verdict binds that digest, so advice " +
+            "cannot be back-dated or quietly dropped once the outcome is known.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["adviceHash"],
+                  properties: {
+                    adviceHash: { type: "string", description: "64-char sha256 hex of commitmentHash(nonce, advice)" },
+                    modelId: { type: "string" },
+                    promptHash: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Committed; returns the receipt seq and hash" },
+            "400": { description: "adviceHash missing or not a sha256 digest" },
+          },
+        },
+      },
+      "/v1/ai/reveal": {
+        post: {
+          summary: "AI reveal phase: publish the advice that opens an earlier commitment",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["nonce"],
+                  properties: { nonce: { type: "string" }, advice: {} },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Revealed and recorded" },
+            "409": { description: "Does not open any commitment bound to a verdict (wrong nonce, or never committed)" },
           },
         },
       },

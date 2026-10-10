@@ -19,6 +19,10 @@
     "brokerd:offline": "VETOOS_OFFLINE=1 tsx apps/brokerd/src/server.ts",
     "proposer": "tsx apps/proposer-ai/src/index.ts",
     "preflight": "tsx apps/demo-cli/src/index.ts doctor",
+    "verify": "tsx apps/demo-cli/src/index.ts verify",
+    "ruleset:stamp": "tsx apps/demo-cli/src/ruleset-stamp.ts",
+    "vectors:gen": "tsx apps/demo-cli/src/vectors-gen.ts",
+    "anchor": "tsx apps/demo-cli/src/anchor.ts",
     "keygen": "tsx apps/demo-cli/src/keygen.ts",
     "broker": "tsx apps/demo-cli/src/index.ts"
   },

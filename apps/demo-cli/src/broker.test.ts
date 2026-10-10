@@ -240,4 +240,27 @@ describe("RiskBroker — write path safety (P1-9 / P1-10)", () => {
     expect(session.ok).toBe(true);
     expect(broker.status()["frozen"]).toBe(false);
   });
+
+  it("freeze posts to VETOOS_FREEZE_WEBHOOK and ignores a non-http url", async () => {
+    dir = mkdtempSync(join(tmpdir(), "vetoos-broker-"));
+    const { adapter } = makeStubAdapter();
+    const broker = new RiskBroker(demoPolicy, adapter, new AuditLog(dir, demoPolicy.contentHash), dir);
+    const calls: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL) => {
+      calls.push(String(url));
+      return new Response("ok");
+    }) as typeof fetch;
+    try {
+      process.env.VETOOS_FREEZE_WEBHOOK = "file:///tmp/nope";
+      broker.freeze("ignored");
+      process.env.VETOOS_FREEZE_WEBHOOK = "https://hooks.example/vetoos";
+      broker.freeze("books diverged");
+      await new Promise((r) => setTimeout(r, 20));
+      expect(calls).toEqual(["https://hooks.example/vetoos"]);
+    } finally {
+      globalThis.fetch = original;
+      delete process.env.VETOOS_FREEZE_WEBHOOK;
+    }
+  });
 });

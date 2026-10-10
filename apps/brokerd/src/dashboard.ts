@@ -27,6 +27,15 @@ export function renderDashboard(build = "dev"): string {
   .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
   .wrap { max-width: 1400px; margin: 0 auto; padding: 14px 16px 48px; }
   header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .creed { display: flex; justify-content: space-between; gap: 18px; align-items: flex-end;
+           border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-top: 12px; }
+  .creed-kicker { font-size: 18px; font-weight: 650; letter-spacing: -0.02em; }
+  .creed-sub { color: var(--dim); font-size: 12px; margin-top: 4px; max-width: 680px; }
+  .creed-metric { text-align: right; }
+  .creed-metric .cfnum { font-size: 28px; font-weight: 750; }
+  .compare { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap;
+             margin-top: 8px; font-size: 12px; color: var(--dim); }
+  .compare b { color: var(--fg); font-weight: 600; }
   h1 { font-size: 17px; margin: 0; letter-spacing: 1px; }
   h1 span { color: var(--accent); }
   .tag { font-size: 11px; color: var(--dim); }
@@ -122,7 +131,7 @@ export function renderDashboard(build = "dev"): string {
   .other { color: var(--amber); }
 
   #overlay { position: fixed; inset: 0; background: rgba(20,4,4,0.96); z-index: 50;
-             display: none; align-items: center; justify-content: center; text-align: center; }
+             display: flex; align-items: center; justify-content: center; text-align: center; }
   #overlay .box { max-width: 640px; padding: 40px; }
   #overlay h2 { color: var(--red); font-size: 38px; letter-spacing: 6px; margin: 0 0 14px; text-transform: none; }
   #overlay p { color: #f3c1c1; }
@@ -165,7 +174,11 @@ export function renderDashboard(build = "dev"): string {
   .aidisclaimer { margin-top: 8px; font-size: 9.5px; color: #48576e; }
   .foot { margin-top: 20px; color: var(--dim); font-size: 10.5px; }
   a { color: var(--accent); text-decoration: none; }
-  @media (max-width: 740px) { .dashrow { grid-template-columns: 1fr; } }
+  @media (max-width: 740px) {
+    .dashrow { grid-template-columns: 1fr; }
+    .creed { flex-direction: column; align-items: flex-start; }
+    .creed-metric { text-align: left; }
+  }
 
   @media (max-width: 1120px) {
     .stage { grid-template-columns: 250px minmax(0,1fr); }
@@ -199,6 +212,21 @@ export function renderDashboard(build = "dev"): string {
     <span class="badge mono" id="chain" title="sha256 hash-chained audit JSONL (GET /v1/audit/verify)">audit chain …</span>
     <span class="badge mono" title="build hash — hard-refresh if this is stale">${build}</span>
   </header>
+  <div class="creed">
+    <div>
+      <div class="creed-kicker">Don't trust the agent. Verify the fill.</div>
+      <div class="creed-sub">Models propose. A deterministic gate is the only signer. The venue's own state is the only truth about fills. The advisory score cannot place an order.</div>
+    </div>
+    <div class="creed-metric">
+      <div class="cfnum mono" id="cfSavedHero">$0.00</div>
+      <div class="dashlabel">loss blocked by vetoes</div>
+    </div>
+  </div>
+  <div class="compare" id="compare">
+    <span>model wanted <b id="cmpWanted">waiting for a proposal</b></span>
+    <span>rule allows <b id="cmpCap">—</b></span>
+    <span class="mono" id="cmpCode"></span>
+  </div>
 
   <div class="stage">
     <div class="col rail-l">
@@ -218,7 +246,7 @@ export function renderDashboard(build = "dev"): string {
       </div>
 
       <div class="panel">
-        <div class="phead"><span>Simulator</span><span class="chip test">LIVE FIRE</span></div>
+        <div class="phead"><span>Simulator</span><span class="chip test" id="simChip">LIVE — CONFIRM</span></div>
         <div class="pbody">
           <button class="scn" data-s="legal">▶ Legal small buy<span class="who">strategy-a · should ALLOW + fill</span></button>
           <button class="scn" data-s="yolo">▶ Oversized order<span class="who">strategy-b · should DENY at notional</span></button>
@@ -296,8 +324,8 @@ export function renderDashboard(build = "dev"): string {
             <div class="ainum mono" id="aiScore">–</div>
             <div class="ailvl"><span class="chip" id="aiLevel">–</span></div>
           </div>
-          <div class="aicomment" id="aiCommentZh">–</div>
-          <div class="aicomment en" id="aiCommentEn">–</div>
+          <div class="aicomment" id="aiCommentEn">–</div>
+          <div class="aicomment en" id="aiCommentZh">–</div>
           <div class="aidisclaimer">AI summarizes deterministic counters only — it never decides allow/deny.</div>
         </div>
       </div>
@@ -332,18 +360,11 @@ export function renderDashboard(build = "dev"): string {
   </div>
 </div>
 
-<div id="overlay">
-  <div class="box">
-    <h2>BROKER FROZEN</h2>
-    <p id="ovReason"></p>
-    <p style="color:#a78">Ledger and venue disagree. The brake cannot be argued with —<br/>only a human can release it.</p>
-    <button id="ovBtn">I AM HUMAN — UNFREEZE</button>
-  </div>
-</div>
+<div id="overlayHost"></div>
 
 <script>
-var RULES = ["freeze","market_data","allowed_market","notional","leverage","daily_loss","cooldown","same_side_adds","rate_limit","book_depth","margin"];
-var RULE_LABEL = {freeze:"global freeze",market_data:"real market data",allowed_market:"allowed market",notional:"notional cap",leverage:"leverage cap",daily_loss:"daily-loss breaker",cooldown:"post-deny cool-down",same_side_adds:"FOMO same-side adds",rate_limit:"order frequency",book_depth:"book capacity",margin:"margin check"};
+var RULES = ["freeze","market_data","oracle_distance","allowed_market","notional","leverage","daily_loss","cooldown","same_side_adds","rate_limit","book_depth","margin"];
+var RULE_LABEL = {freeze:"global freeze",market_data:"real market data",oracle_distance:"oracle distance",allowed_market:"allowed market",notional:"notional cap",leverage:"leverage cap",daily_loss:"daily-loss breaker",cooldown:"post-deny cool-down",same_side_adds:"FOMO same-side adds",rate_limit:"order frequency",book_depth:"book capacity",margin:"margin check"};
 var TOKEN = "";
 try { TOKEN = new URLSearchParams(location.search).get("token") || ""; } catch (e) {}
 function postHeaders() {
@@ -359,7 +380,7 @@ function esc(v) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-var state = { lastKey: null, busy: false, tradeMarket: "BTC", lastOk: 0 };
+var state = { lastKey: null, busy: false, tradeMarket: "BTC", lastOk: 0, offline: false };
 setInterval(function(){
   var el = $("fresh"); if (!el) return;
   var age = state.lastOk ? Math.round((Date.now() - state.lastOk) / 1000) : 99;
@@ -440,15 +461,56 @@ function fire(kind) {
     .finally(function(){ setTimeout(function(){ done(); refresh(); }, 800); });
 }
 document.querySelectorAll("button.scn").forEach(function(b){
-  b.addEventListener("click", function(){ fire(b.getAttribute("data-s")); });
+  b.addEventListener("click", function(){
+    var kind = b.getAttribute("data-s");
+    if (!state.offline) {
+      var ok = window.confirm("LIVE testnet: this button sends a real intent (or freezes the broker). Continue?");
+      if (!ok) return;
+    }
+    fire(kind);
+  });
 });
-$("ovBtn").onclick = function(){
-  // Human-only unfreeze (local token header; wallet-signature path remains
-  // available server-side for operators who want it).
-  var uh = postHeaders(); uh["x-vetoos-human"] = "I_AM_HUMAN";
-  fetch("/v1/unfreeze", { method: "POST", headers: uh }).then(refresh);
-};
+function bindUnfreeze() {
+  var btn = $("ovBtn");
+  if (!btn) return;
+  btn.onclick = function(){
+    var uh = postHeaders(); uh["x-vetoos-human"] = "I_AM_HUMAN";
+    fetch("/v1/unfreeze", { method: "POST", headers: uh }).then(refresh);
+  };
+}
+function renderOverlay(status) {
+  var host = $("overlayHost");
+  if (!status.frozen) { host.innerHTML = ""; return; }
+  if (!$("ovBtn")) {
+    host.innerHTML = '<div id="overlay"><div class="box"><h2>BROKER FROZEN</h2><p id="ovReason"></p>' +
+      '<p style="color:#a78">Ledger and venue disagree. The brake cannot be argued with —<br/>only a human can release it.</p>' +
+      '<button id="ovBtn">I AM HUMAN — UNFREEZE</button></div></div>';
+    bindUnfreeze();
+  }
+  $("ovReason").textContent = status.freezeReason || "";
+}
 
+function paintCompare(feed, policyDoc) {
+  var capFallback = policyDoc && policyDoc.policy ? policyDoc.policy.max_order_notional_usd : 0;
+  var events = (feed && feed.events) || [];
+  var last = null;
+  for (var i = events.length - 1; i >= 0; i--) {
+    var ev = events[i];
+    if (ev.type === "decision" && ev.data && ev.data.snapshot) { last = ev.data; break; }
+  }
+  if (!last) {
+    $("cmpWanted").textContent = "waiting for a proposal";
+    $("cmpCap").textContent = capFallback ? "≤ $" + fmt(capFallback) + " notional" : "—";
+    $("cmpCode").textContent = "";
+    return;
+  }
+  var s = last.snapshot;
+  var cap = s.allowed_notional_usd || capFallback;
+  $("cmpWanted").textContent = String(s.side || "").toUpperCase() + " " + (s.size || "") + " " + (s.market || "") + " · ~$" + fmt(s.notional_usd || 0);
+  $("cmpCap").textContent = cap ? "≤ $" + fmt(cap) + " notional" : "—";
+  $("cmpCode").textContent = last.code || "";
+  $("cmpCode").style.color = last.decision === "allow" ? "var(--green)" : "var(--red)";
+}
 function feedLine(ev) {
   var d = ev.data || {};
   var cls = "other", txt = ev.type;
@@ -522,11 +584,14 @@ function refresh() {
     get("/v1/execution"),
     get("/v1/stats"),
     get("/v1/counterfactual"),
+    get("/v1/policy"),
   ]).then(function(all){
     var status = all[0], account = all[1], feed = all[2], market = all[3], risk = all[4],
-        execution = all[5], stats = all[6], cf = all[7];
+        execution = all[5], stats = all[6], cf = all[7], policyDoc = all[8];
     state.lastOk = Date.now();
     state.tradeMarket = status.tradeMarket || "BTC";
+    state.offline = status.offline === true;
+    $("simChip").textContent = state.offline ? "OFFLINE — ONE CLICK" : "LIVE — CONFIRM";
     $("policy").textContent = "policy " + String(status.policyHash||"").slice(0,12) + "…";
     $("gatehash").textContent = "sha256 " + String(status.policyHash||"").slice(0,16) + "…";
     $("nets").textContent = status.offline
@@ -593,6 +658,9 @@ function refresh() {
     // counterfactual panel
     $("cfSaved").textContent = "$" + fmt(cf.avoidedLoss);
     $("cfSaved").style.color = cf.avoidedLoss > 0 ? "var(--green)" : "var(--dim)";
+    $("cfSavedHero").textContent = $("cfSaved").textContent;
+    $("cfSavedHero").style.color = $("cfSaved").style.color;
+    paintCompare(feed, policyDoc);
     $("cfNotional").textContent = "$" + fmt(cf.grossNotional);
     $("cfLev").textContent = cf.worstLeverage > 0 ? cf.worstLeverage.toFixed(1) + "x equity" : "–";
     $("cfMissed").textContent = "$" + fmt(cf.missedGain);
@@ -626,10 +694,9 @@ function refresh() {
       ? alerts.map(function(a){ var lv = a.level === "crit" || a.level === "warn" ? a.level : "info"; return '<div class="alert"><span class="lvl '+lv+'">'+esc(lv.toUpperCase())+'</span><span class="txt">'+esc(a.text)+'</span></div>'; }).join("")
       : '<div class="noalerts">no active alerts — nominal</div>';
 
-    $("overlay").style.display = status.frozen ? "flex" : "none";
+    renderOverlay(status);
     $("statusDot").className = status.frozen ? "frozen" : "";
     $("statusText").textContent = status.frozen ? "FROZEN" : "OPERATIONAL";
-    if (status.frozen) $("ovReason").textContent = status.freezeReason || "";
     $("truthV").textContent = status.frozen ? "MISMATCH" : "CLEAN";
     $("truthV").style.color = status.frozen ? "var(--red)" : "var(--green)";
     $("truth").className = "panel truth" + (status.frozen ? " bad" : "");

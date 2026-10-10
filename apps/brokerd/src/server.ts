@@ -26,6 +26,7 @@ import { AuditLog } from "@vetoos/audit";
 import { loadPolicy } from "@vetoos/risk";
 import { RiskBroker } from "@vetoos/demo-cli/broker";
 import { assertPolicyExists, loadConfig } from "@vetoos/demo-cli/config";
+import { checkKeySeparation, receiptSignerFor } from "@vetoos/demo-cli/keys";
 import { createContext, handler, reconcileTick, RECONCILE_LOOP_MS } from "./app.js";
 
 /** Short git hash injected into the console so we can tell versions apart at a glance. */
@@ -83,9 +84,23 @@ async function main(): Promise<void> {
   if (!offline && (!config.privateKey || !config.accountAddress)) {
     throw new Error("HL_PRIVATE_KEY and HL_ACCOUNT_ADDRESS required — docs/TESTNET_SETUP.md (or VETOOS_OFFLINE=1)");
   }
+  // Key roles are a structural property, not a policy: if the hot trading key
+  // were the operator account, this process could sign its own unfreeze.
+  // Offline mode holds no keys at all, so there is nothing to separate.
+  if (!offline) {
+    const roleChecks = checkKeySeparation(config);
+    for (const check of roleChecks) {
+      console.log("[keys] " + check.status.toUpperCase() + " " + check.name + ": " + check.detail);
+    }
+    const fatal = roleChecks.filter((c) => c.status === "fail");
+    if (fatal.length > 0) {
+      throw new Error("key role check failed — refusing to start: " + fatal.map((f) => f.detail).join("; "));
+    }
+  }
+  const receiptSigner = receiptSignerFor(config);
   const adapter = offline ? new FixtureAdapter() : new HlAdapter(config);
   const audit = new AuditLog(config.stateDir, policy.contentHash);
-  const broker = new RiskBroker(policy, adapter, audit, config.stateDir);
+  const broker = new RiskBroker(policy, adapter, audit, config.stateDir, undefined, receiptSigner?.sign);
 
   // Fail closed on missing real market data — but give transient venue
   // rate limits a chance to pass first (startup is the critical path).

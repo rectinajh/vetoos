@@ -1,5 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { hashPolicyBytes, loadPolicy } from "./policy.js";
 
@@ -28,4 +30,21 @@ describe("loadPolicy", () => {
   it("rejects a policy missing required fields", () => {
     expect(() => loadPolicy(resolve(here, "nonexistent.json"))).toThrow();
   });
+
+  it("defaults oracle distance to 500 bps when the field is omitted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "vetoos-policy-"));
+    const path = join(dir, "policy.json");
+    const raw = JSON.parse(readDemo()) as Record<string, unknown>;
+    delete raw["max_oracle_deviation_bps"];
+    writeFileSync(path, JSON.stringify(raw));
+    try {
+      expect(loadPolicy(path).policy.max_oracle_deviation_bps).toBe(500);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
+
+function readDemo(): string {
+  return JSON.stringify(loadPolicy(demoPolicyPath).policy);
+}
