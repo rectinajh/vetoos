@@ -105,6 +105,15 @@ describe("vetoos verify", () => {
     expect(replay.detail).toContain("1/1 verdicts recomputed");
   });
 
+  it("accepts a state directory instead of a file (the recording workflow)", async () => {
+    // `pnpm demo:record` writes to logs/recording; the verifier must accept that
+    // path directly rather than making the presenter do date arithmetic on camera.
+    const { inputsDir } = buildFixture(dir);
+    const report = await runVerify({ receipts: dir, inputs: inputsDir, anchors: join(dir, "none.jsonl") });
+    expect(report.ok).toBe(true);
+    expect(report.receipts).toBe(1);
+  });
+
   it("attack: swap the archived input -> inputsHash mismatch (content addressing)", async () => {
     const { file, inputsDir, inputsHash, input } = buildFixture(dir);
     const tampered = { ...input, market: { ...input.market, markPx: 1 } };

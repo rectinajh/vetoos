@@ -159,6 +159,19 @@ pnpm verify               # recompute every verdict from its archived input
 pnpm brokerd:offline      # the console on the fixture venue → http://127.0.0.1:4399/
 ```
 
+### Recording a demo
+
+```bash
+pnpm demo:record                          # four acts, fixture venue, cool-down compressed
+pnpm verify --receipts logs/recording     # a directory works: "today's audit file in there"
+pnpm prove  --receipts logs/recording     # four dishonest copies, four catches
+```
+
+The shipped rulebook waits 30 s after a denial so the next act shows the right guard;
+across three acts that is ~90 s of a 3-minute video spent watching a clock. `--fast`
+compresses the cool-down **window** — the rule is untouched (an instant retry is still
+refused and still lands in the receipt chain), the profile is written next to the
+receipts, and its hash goes into every one, so the run stays auditable.
 ### Verify a run (no keys, no trust)
 
 ```bash

@@ -11,7 +11,7 @@
  * attacks are caught.
  */
 
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { merkleRoot, readAuditFile } from "@vetoos/audit";
@@ -48,7 +48,19 @@ export async function attacksCommand(argv: string[]): Promise<number> {
     const i = argv.indexOf(name);
     return i === -1 ? undefined : argv[i + 1];
   };
-  const receipts = arg("--receipts") ?? defaultFile();
+  const rawReceipts = arg("--receipts") ?? defaultFile();
+  // A directory means "today's audit file in there" — makes the recording
+  // sequence (`pnpm demo:record` then `pnpm prove --receipts logs/recording`)
+  // work without date arithmetic while the camera is rolling.
+  const receipts = (() => {
+    try {
+      return statSync(rawReceipts).isDirectory()
+        ? join(rawReceipts, "audit-" + new Date().toISOString().slice(0, 10) + ".jsonl")
+        : rawReceipts;
+    } catch {
+      return rawReceipts;
+    }
+  })();
   const inputs = arg("--inputs") ?? join(dirname(receipts), "inputs");
 
   let source: string;

@@ -13,13 +13,13 @@
 
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { HlAdapter } from "@vetoos/adapter-hl";
 import { FixtureAdapter } from "@vetoos/adapter-hl/fixture";
 import { AuditLog } from "@vetoos/audit";
 import { loadPolicy, type LoadedPolicy } from "@vetoos/risk";
 import { RiskBroker } from "./broker.js";
-import { assertPolicyExists, loadConfig, type CliConfig } from "./config.js";
+import { assertPolicyExists, loadConfig, repoRoot, type CliConfig } from "./config.js";
 import { runDemo, resolveTradeMarket } from "./demo.js";
 import { receiptSignerFor } from "./keys.js";
 import { runDoctor } from "./doctor.js";
@@ -138,7 +138,15 @@ async function main(): Promise<number> {
       if (flags["offline"] === true) {
         // Judges' mode: same broker, same engine, same four acts — canned venue.
         // State goes to its own directory so it never mixes with real runs.
-        const offline = { ...config, stateDir: mkdtempSync(join(tmpdir(), "vetoos-offline-")) };
+        // --state pins the run to a stable directory so the verifier can be
+        // pointed at it afterwards; without it the state is ephemeral.
+        const offline = {
+          ...config,
+          stateDir:
+            typeof flags["state"] === "string"
+              ? resolve(repoRoot(), String(flags["state"]))
+              : mkdtempSync(join(tmpdir(), "vetoos-offline-")),
+        };
         assertPolicyExists(offline.policyPath);
         const loadedPolicy = loadPolicy(offline.policyPath);
         // --fast compresses the cool-down WINDOW for recording; the rule is

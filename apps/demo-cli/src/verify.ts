@@ -16,7 +16,7 @@
  * exactly which sequence number lied.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   chainHead,
@@ -77,9 +77,21 @@ function todayFile(dir: string): string {
   return join(dir, "audit-" + new Date().toISOString().slice(0, 10) + ".jsonl");
 }
 
+
+/** Accept a state directory as well as a file, so `--receipts logs/recording` just works. */
+function resolveReceipts(input: string): string {
+  try {
+    if (statSync(input).isDirectory()) {
+      return join(input, "audit-" + new Date().toISOString().slice(0, 10) + ".jsonl");
+    }
+  } catch {
+    /* not a path we can stat — treat it as a file and let the caller report it */
+  }
+  return input;
+}
 export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyReport> {
   const dir = defaultDir();
-  const file = opts.receipts ?? todayFile(dir);
+  const file = resolveReceipts(opts.receipts ?? todayFile(dir));
   const inputsDir = opts.inputs ?? join(file.replace(/\/[^/]+$/, ""), "inputs");
   const anchorsFile = opts.anchors ?? join(file.replace(/\/[^/]+$/, ""), "anchors.jsonl");
   const levels: LevelResult[] = [];
