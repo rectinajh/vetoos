@@ -1,0 +1,30 @@
+{
+  "name": "vetoos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "VetoOS - AI-era risk-control OS for Hyperliquid HIP-3: proposals belong to models, fills belong to rules.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "demo": "tsx apps/demo-cli/src/index.ts demo",
+    "preflight": "tsx apps/demo-cli/src/index.ts doctor",
+    "broker": "tsx apps/demo-cli/src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "dependencies": {
+    "@nktkas/hyperliquid": "^0.25.0",
+    "dotenv": "^17.0.0",
+    "zod": "^4.0.0"
+  }
+}

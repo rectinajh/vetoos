@@ -1,0 +1,18 @@
+{
+  "version": "0.1",
+  "allowed_markets": [
+    "xyz:XYZ100",
+    "BTC"
+  ],
+  "max_leverage": 5,
+  "max_order_notional_usd": 1000,
+  "max_daily_loss_usd": 200,
+  "max_orders_per_minute": 10,
+  "cooldown_seconds_after_deny": 30,
+  "max_same_side_adds_per_hour": 3,
+  "min_book_depth_multiple": 2.0,
+  "freeze_on_reconcile_mismatch": true,
+  "default_dex": "xyz",
+  "default_market": "xyz:XYZ100",
+  "network_mode": "mainnet_read_testnet_trade_preferred"
+}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0B0F14"/>
+  <!-- brake disc: the veto gate -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#22D3EE" stroke-width="22"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#0B0F14" stroke-width="22"
+          stroke-dasharray="235.6 706.9" stroke-dashoffset="117.8" stroke-linecap="round"/>
+  <!-- the checkmark that outranks the model -->
+  <path d="M186 262 L236 312 L330 208" fill="none" stroke="#F8FAFC" stroke-width="30"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="256" y="452" text-anchor="middle" font-family="Menlo, monospace" font-size="44"
+        fill="#F8FAFC" font-weight="700">VetoOS</text>
+</svg>
