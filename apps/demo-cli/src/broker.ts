@@ -149,6 +149,25 @@ export class RiskBroker {
     ).length;
   }
 
+  /** Submissions (intents + fills) in the trailing minute — the rate guard's counter. */
+  submissionsLastMinute(): number {
+    const cutoff = Date.now() - 60_000;
+    return this.state.history.filter(
+      (h) => (h.kind === "intent" || h.kind === "fill") && h.ts >= cutoff,
+    ).length;
+  }
+
+  /** Timestamp of the most recent deny, if any (cooldown derives from it). */
+  lastDenyTs(): number | undefined {
+    return this.state.history
+      .filter((h) => h.kind === "deny")
+      .reduce<number | undefined>((acc, h) => (acc === undefined || h.ts > acc ? h.ts : acc), undefined);
+  }
+
+  get dailyRealizedPnlUsd(): number {
+    return this.state.dailyRealizedPnlUsd;
+  }
+
   async submitIntent(raw: unknown): Promise<SubmitResult> {
     // 1. Intent IR validation — tampering attempts die here.
     const validation = validateIntent(raw);

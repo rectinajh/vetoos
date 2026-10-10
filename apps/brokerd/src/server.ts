@@ -32,6 +32,7 @@ interface Context {
   tradeMarket: string;
   startedAt: string;
   accountCache: { at: number; data: unknown } | null;
+  marketCache: { at: number; data: unknown } | null;
 }
 
 function json(res: ServerResponse, code: number, body: unknown): void {
@@ -106,6 +107,88 @@ async function route(ctx: Context, req: IncomingMessage, res: ServerResponse): P
       policy: ctx.policy.policy,
       contentHash: ctx.policy.contentHash,
       path: ctx.policy.path,
+    });
+    return;
+  }
+  if (method === "GET" && path === "/v1/market") {
+    // Live HIP-3 mainnet context (the data that drives vetoes) + trade market.
+    if (ctx.marketCache && Date.now() - ctx.marketCache.at < 5000) {
+      json(res, 200, ctx.marketCache.data);
+      return;
+    }
+    const p = ctx.policy.policy;
+    const hipBuy = await ctx.adapter.getMarketSnapshot(p.default_market, "mainnet", "buy");
+    const hipSell = await ctx.adapter.getMarketSnapshot(p.default_market, "mainnet", "sell");
+    const trade = await ctx.adapter.getMarketContext(ctx.tradeMarket, "testnet");
+    const data = {
+      hip3: {
+        market: p.default_market,
+        assetId: hipBuy.assetId,
+        markPx: hipBuy.markPx,
+        funding: hipBuy.funding,
+        openInterest: hipBuy.openInterest,
+        depthBuy: hipBuy.depthWithinBand,
+        depthSell: hipSell.depthWithinBand,
+        szDecimals: hipBuy.szDecimals,
+      },
+      trade: { market: ctx.tradeMarket, markPx: trade.markPx, assetId: trade.assetId },
+    };
+    ctx.marketCache = { at: Date.now(), data };
+    json(res, 200, data);
+    return;
+  }
+  if (method === "GET" && path === "/v1/risk") {
+    const p = ctx.policy.policy;
+    const account = (await liveAccount(ctx)) as {
+      equityUsd: number;
+      availableMarginUsd: number;
+    };
+    const fomoUsed = Math.max(
+      ctx.broker.sameSideFillsLastHour(ctx.tradeMarket, "buy"),
+      ctx.broker.sameSideFillsLastHour(ctx.tradeMarket, "sell"),
+    );
+    const lastDeny = ctx.broker.lastDenyTs();
+    const cooldownRemainingS =
+      lastDeny === undefined
+        ? 0
+        : Math.max(0, Math.ceil((lastDeny + p.cooldown_seconds_after_deny * 1000 - Date.now()) / 1000));
+    const marginUsed = Math.max(0, account.equityUsd - account.availableMarginUsd);
+    const marginPct = account.equityUsd > 0 ? marginUsed / account.equityUsd : 0;
+    const dailyLossUsed = Math.max(0, -ctx.broker.dailyRealizedPnlUsd);
+
+    const alerts: { level: "crit" | "warn" | "info"; text: string }[] = [];
+    if (ctx.broker.frozen) {
+      alerts.push({ level: "crit", text: "BROKER FROZEN — reconciliation mismatch, human action required" });
+    }
+    if (cooldownRemainingS > 0) {
+      alerts.push({ level: "warn", text: `cool-down active — ${cooldownRemainingS}s remaining` });
+    }
+    if (fomoUsed >= p.max_same_side_adds_per_hour - 1 && p.max_same_side_adds_per_hour > 1) {
+      alerts.push({
+        level: fomoUsed >= p.max_same_side_adds_per_hour ? "crit" : "warn",
+        text: `FOMO same-side adds at ${fomoUsed}/${p.max_same_side_adds_per_hour} per hour`,
+      });
+    }
+    if (dailyLossUsed > 0.7 * p.max_daily_loss_usd) {
+      alerts.push({
+        level: dailyLossUsed >= p.max_daily_loss_usd ? "crit" : "warn",
+        text: `daily loss $${dailyLossUsed.toFixed(2)} of $${p.max_daily_loss_usd} breaker`,
+      });
+    }
+    if (marginPct > 0.7) {
+      alerts.push({ level: marginPct > 0.9 ? "crit" : "warn", text: `margin utilization ${(marginPct * 100).toFixed(0)}%` });
+    }
+
+    json(res, 200, {
+      gauges: {
+        fomo_adds: { used: fomoUsed, cap: p.max_same_side_adds_per_hour },
+        rate_per_min: { used: ctx.broker.submissionsLastMinute(), cap: p.max_orders_per_minute },
+        daily_loss: { used: dailyLossUsed, cap: p.max_daily_loss_usd },
+        margin_use: { used: marginUsed, cap: account.equityUsd, pct: marginPct },
+        cooldown: { remainingS: cooldownRemainingS, capS: p.cooldown_seconds_after_deny },
+        notional_cap: { cap: p.max_order_notional_usd },
+      },
+      alerts,
     });
     return;
   }
@@ -185,6 +268,7 @@ async function main(): Promise<void> {
     tradeMarket,
     startedAt: new Date().toISOString(),
     accountCache: null,
+    marketCache: null,
   };
 
   const port = Number(process.env.VETOOS_PORT ?? 4399); // 4310 collides with common apps
