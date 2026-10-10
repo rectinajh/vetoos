@@ -156,6 +156,18 @@ export function renderDashboard(build = "dev"): string {
            border-radius: 8px; padding: 9px 16px; font-size: 12px; z-index: 80;
            opacity: 0; transition: all 0.3s ease; max-width: 80vw; text-align: center; }
   #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .radarwrap { display: flex; justify-content: center; }
+  #radar { width: 100%; max-width: 340px; }
+  .aihero { display: flex; align-items: baseline; gap: 12px; }
+  .ainum { font-size: 34px; font-weight: 900; }
+  .ailvl .chip { font-size: 10px; padding: 2px 8px; }
+  .ailvl .low { background: rgba(63,185,80,0.14); color: var(--green); }
+  .ailvl .moderate { background: rgba(34,211,238,0.12); color: var(--accent); }
+  .ailvl .high { background: rgba(210,153,34,0.16); color: var(--amber); }
+  .ailvl .critical { background: rgba(248,81,73,0.16); color: var(--red); }
+  .aicomment { margin-top: 8px; font-size: 11.5px; }
+  .aicomment.en { color: var(--dim); font-size: 10.5px; margin-top: 3px; }
+  .aidisclaimer { margin-top: 8px; font-size: 9.5px; color: #48576e; }
   .foot { margin-top: 20px; color: var(--dim); font-size: 10.5px; }
   a { color: var(--accent); text-decoration: none; }
   @media (max-width: 740px) { .dashrow { grid-template-columns: 1fr; } }
@@ -232,6 +244,11 @@ export function renderDashboard(build = "dev"): string {
       </div>
 
       <div class="panel">
+        <div class="phead"><span>Risk radar · live gate dimensions</span><span class="chip hip" id="radarSrc">–</span></div>
+        <div class="pbody radarwrap"><svg id="radar" viewBox="0 0 320 300"></svg></div>
+      </div>
+
+      <div class="panel">
         <div class="phead"><span>Risk dashboard · utilization</span></div>
         <div class="pbody">
           <div class="gauges">
@@ -278,6 +295,18 @@ export function renderDashboard(build = "dev"): string {
     </div>
 
     <div class="col rail-r">
+      <div class="panel">
+        <div class="phead"><span>AI risk score · advisory</span><span class="chip hip" id="aiSrc">–</span></div>
+        <div class="pbody">
+          <div class="aihero">
+            <div class="ainum mono" id="aiScore">–</div>
+            <div class="ailvl"><span class="chip" id="aiLevel">–</span></div>
+          </div>
+          <div class="aicomment" id="aiCommentZh">–</div>
+          <div class="aicomment en" id="aiCommentEn">–</div>
+          <div class="aidisclaimer">AI summarizes deterministic counters only — it never decides allow/deny.</div>
+        </div>
+      </div>
       <div class="panel">
         <div class="phead"><span>Risk alerts</span><span class="chip hip" id="alertCount">0</span></div>
         <div class="pbody" id="alerts"><div class="noalerts">no active alerts — nominal</div></div>
@@ -691,9 +720,62 @@ function refresh() {
   }).catch(function(){});
 }
 
+// ---- risk radar + AI advisory score ----
+var LEVEL_COLOR = { low: "var(--green)", moderate: "var(--accent)", high: "var(--amber)", critical: "var(--red)" };
+function radarPoint(cx, cy, r, i, n) {
+  var a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+  return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+}
+function drawRadar(axes) {
+  var cx = 160, cy = 150, R = 100, n = axes.length;
+  var s = "";
+  [1 / 3, 2 / 3, 1].forEach(function(f) {
+    var pts = [];
+    for (var i = 0; i < n; i++) pts.push(radarPoint(cx, cy, R * f, i, n).join(","));
+    s += '<polygon points="' + pts.join(" ") + '" fill="none" stroke="#1b2637" stroke-width="1" stroke-dasharray="' + (f === 1 ? "0" : "3,3") + '"/>';
+  });
+  for (var i = 0; i < n; i++) {
+    var p = radarPoint(cx, cy, R, i, n);
+    s += '<line x1="' + cx + '" y1="' + cy + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="#182335" stroke-width="1"/>';
+  }
+  var poly = axes.map(function(a, i) {
+    var p = radarPoint(cx, cy, (R * Math.max(a.value, 2)) / 100, i, n);
+    return p[0].toFixed(1) + "," + p[1].toFixed(1);
+  }).join(" ");
+  s += '<polygon points="' + poly + '" fill="rgba(34,211,238,0.16)" stroke="#22d3ee" stroke-width="2"/>';
+  axes.forEach(function(a, i) {
+    var p = radarPoint(cx, cy, (R * Math.max(a.value, 2)) / 100, i, n);
+    s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="3" fill="#22d3ee"/>';
+    var lp = radarPoint(cx, cy, R + 22, i, n);
+    var anchor = Math.abs(lp[0] - cx) < 20 ? "middle" : lp[0] > cx ? "start" : "end";
+    s += '<text x="' + lp[0] + '" y="' + lp[1] + '" text-anchor="' + anchor + '" font-size="9.5" fill="#7d8ba0">' + a.label + "</text>";
+    var vp = radarPoint(cx, cy, R + 36, i, n);
+    var col = a.value >= 85 ? "#f85149" : a.value >= 60 ? "#d29922" : "#22d3ee";
+    s += '<text x="' + vp[0] + '" y="' + vp[1] + '" text-anchor="' + anchor + '" font-size="10" font-weight="700" fill="' + col + '">' + a.value + "</text>";
+  });
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="2.5" fill="#7d8ba0"/>';
+  $("radar").innerHTML = s;
+}
+function pollAiRisk() {
+  fetch("/v1/ai-risk").then(function(r) { return r.json(); }).then(function(rep) {
+    if (!rep || !rep.axes) return;
+    drawRadar(rep.axes);
+    $("radarSrc").textContent = rep.source === "llm" ? "AI+rules" : "rules counters";
+    $("aiScore").textContent = rep.score;
+    $("aiScore").style.color = LEVEL_COLOR[rep.level] || "var(--fg)";
+    $("aiLevel").textContent = (rep.level || "?").toUpperCase();
+    $("aiLevel").className = "chip " + rep.level;
+    $("aiSrc").textContent = rep.source === "llm" ? "LLM" : "heuristic";
+    $("aiCommentZh").textContent = rep.comment_zh || "";
+    $("aiCommentEn").textContent = rep.comment_en || "";
+  }).catch(function(){});
+}
+
 buildPipe();
 refresh();
 setInterval(refresh, 2000);
+pollAiRisk();
+setInterval(pollAiRisk, 15000);
 </script>
 </body>
 </html>`;

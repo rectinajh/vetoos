@@ -22,6 +22,7 @@ import { RiskBroker, READ_NETWORK, WRITE_NETWORK } from "@vetoos/demo-cli/broker
 import { assertPolicyExists, loadConfig, type CliConfig } from "@vetoos/demo-cli/config";
 import { renderDashboard } from "./dashboard.js";
 import { renderOpenApi } from "./openapi.js";
+import { heuristicReport, llmReport, type AiRiskInputs } from "./ai-risk.js";
 
 const HUMAN_HEADER = "x-vetoos-human";
 const HUMAN_TOKEN = "I_AM_HUMAN";
@@ -46,6 +47,7 @@ interface Context {
   startedAt: string;
   accountCache: { at: number; data: unknown } | null;
   marketCache: { at: number; data: unknown } | null;
+  aiRiskCache: { at: number; data: unknown } | null;
 }
 
 function json(res: ServerResponse, code: number, body: unknown): void {
@@ -321,6 +323,56 @@ async function route(ctx: Context, req: IncomingMessage, res: ServerResponse): P
     });
     return;
   }
+  if (method === "GET" && path === "/v1/ai-risk") {
+    // Advisory AI/heuristic risk score over deterministic counters (30s cache).
+    if (ctx.aiRiskCache && Date.now() - ctx.aiRiskCache.at < 30_000) {
+      json(res, 200, ctx.aiRiskCache.data);
+      return;
+    }
+    const p = ctx.policy.policy;
+    const account = (await liveAccount(ctx)) as { equityUsd: number; availableMarginUsd: number };
+    const fomoUsed = Math.max(
+      ctx.broker.sameSideFillsLastHour(ctx.tradeMarket, "buy"),
+      ctx.broker.sameSideFillsLastHour(ctx.tradeMarket, "sell"),
+    );
+    const lastDeny = ctx.broker.lastDenyTs();
+    const cooldownRemainingS =
+      lastDeny === undefined
+        ? 0
+        : Math.max(0, Math.ceil((lastDeny + p.cooldown_seconds_after_deny * 1000 - Date.now()) / 1000));
+    const marginUsed = Math.max(0, account.equityUsd - account.availableMarginUsd);
+    const marginPct = account.equityUsd > 0 ? marginUsed / account.equityUsd : 0;
+    const deniesLastHour = ctx.broker.deniesLastHour();
+    // worst-side book utilization for a max-size order on the trade market
+    let liquidityUtilPct = 0;
+    try {
+      const snap = await ctx.adapter.getMarketSnapshot(ctx.tradeMarket, WRITE_NETWORK, "buy");
+      const maxSize = p.max_order_notional_usd / snap.markPx;
+      const required = maxSize * p.min_book_depth_multiple;
+      liquidityUtilPct = snap.depthWithinBand > 0 ? Math.min(100, (required / snap.depthWithinBand) * 100) : 100;
+    } catch {
+      liquidityUtilPct = 50;
+    }
+    const inputs: AiRiskInputs = {
+      frozen: ctx.broker.frozen,
+      fomoUsed,
+      fomoCap: p.max_same_side_adds_per_hour,
+      rateUsed: ctx.broker.submissionsLastMinute(),
+      rateCap: p.max_orders_per_minute,
+      dailyLossUsed: Math.max(0, -ctx.broker.dailyRealizedPnlUsd),
+      dailyLossCap: p.max_daily_loss_usd,
+      marginPct,
+      cooldownRemainingS,
+      deniesLastHour,
+      liquidityUtilPct,
+      equityUsd: account.equityUsd,
+      tradeMarket: ctx.tradeMarket,
+    };
+    const report = (await llmReport(inputs)) ?? heuristicReport(inputs);
+    ctx.aiRiskCache = { at: Date.now(), data: report };
+    json(res, 200, report);
+    return;
+  }
   if (method === "GET" && path === "/v1/feed") {
     const n = Math.min(Number(url.searchParams.get("n") ?? 50) || 50, 500);
     json(res, 200, { events: readFeed(ctx, n) });
@@ -444,6 +496,7 @@ async function main(): Promise<void> {
     startedAt: new Date().toISOString(),
     accountCache: null,
     marketCache: null,
+    aiRiskCache: null,
   };
 
   const port = Number(process.env.VETOOS_PORT ?? 4399); // 4310 collides with common apps

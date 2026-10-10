@@ -164,6 +164,12 @@ export class RiskBroker {
       .reduce<number | undefined>((acc, h) => (acc === undefined || h.ts > acc ? h.ts : acc), undefined);
   }
 
+  /** Denies in the trailing hour — discipline pressure for the risk radar. */
+  deniesLastHour(): number {
+    const cutoff = Date.now() - 3_600_000;
+    return this.state.history.filter((h) => h.kind === "deny" && h.ts >= cutoff).length;
+  }
+
   get dailyRealizedPnlUsd(): number {
     return this.state.dailyRealizedPnlUsd;
   }
