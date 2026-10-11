@@ -27,6 +27,7 @@ import { runInit } from "./init.js";
 import { applyRecordingProfile } from "./recording.js";
 import { verifyCommand } from "./verify.js";
 import { attacksCommand } from "./attacks.js";
+import { shadowCommand } from "./shadow.js";
 
 export function parseFlags(argv: string[]): Record<string, string | boolean> {
   const flags: Record<string, string | boolean> = {};
@@ -133,6 +134,11 @@ async function main(): Promise<number> {
     case "prove":
       // Attack suite: four dishonest copies of the receipts, four catches.
       return await attacksCommand(rest);
+
+    case "shadow":
+      // Read-only: replays a public account's real fills through the gate.
+      // No keys, no custody — safe to expose on a public host.
+      return await shadowCommand(rest);
 
     case "demo": {
       if (flags["offline"] === true) {

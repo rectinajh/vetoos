@@ -9,6 +9,7 @@
     "./broker": "./src/broker.ts",
     "./config": "./src/config.ts",
     "./keys": "./src/keys.ts",
+    "./shadow": "./src/shadow.ts",
     "./demo": "./src/demo.ts"
   },
   "bin": {
@@ -18,6 +19,7 @@
     "@vetoos/adapter-hl": "workspace:*",
     "@vetoos/audit": "workspace:*",
     "@vetoos/intent": "workspace:*",
+    "@vetoos/replay": "workspace:*",
     "@vetoos/risk": "workspace:*",
     "@vetoos/truth": "workspace:*",
     "dotenv": "^17.0.0",

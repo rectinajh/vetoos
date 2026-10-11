@@ -7,9 +7,11 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./fixture": "./src/fixture.ts"
+    "./fixture": "./src/fixture.ts",
+    "./public-reads": "./src/public-reads.ts"
   },
   "dependencies": {
-    "@nktkas/hyperliquid": "^0.25.0"
+    "@nktkas/hyperliquid": "^0.25.0",
+    "@vetoos/replay": "workspace:*"
   }
 }

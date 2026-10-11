@@ -172,6 +172,35 @@ across three acts that is ~90 s of a 3-minute video spent watching a clock. `--f
 compresses the cool-down **window** — the rule is untouched (an instant retry is still
 refused and still lands in the receipt chain), the profile is written next to the
 receipts, and its hash goes into every one, so the run stays auditable.
+### Point it at any account (still no keys)
+
+```bash
+pnpm shadow 0xf5d81a135f756ca16544e53c20fc20643ec3ad53
+pnpm shadow <address> --json --out report.json
+```
+
+Reads only public data — that address's own fills, funding and ledger movements — and replays
+them through **the same deterministic engine the broker uses**, one fill at a time, with the
+account state reconstructed as it was at that moment. No key, no custody, no signup.
+
+```
+YOUR TRADING PROFILE
+  2000 fills over 36 minutes · 24 markets · 51% position-reducing
+  order rate p50 58.0/min, p95 182.0/min · order size median $254, p95 $18,850
+  where this rulebook and your style disagree:
+    - order rate: your p95 is 182 orders/min, this rulebook allows 10
+
+RESULT
+  2000 orders replayed · 1992 would have been refused (99.6%)
+  attributed PnL of refused orders: -$33  (the gate would have kept this much)
+```
+
+A report separates three categories instead of blurring them: rules evaluated **exactly**
+(notional, same-side adds, cool-down, rate, daily realized loss, position size), rules
+**reconstructed approximately** (equity, walked back through realized PnL, fees, funding and
+ledger movements, so leverage and margin are labelled approximate), and rules **not evaluated
+at all** (book depth — Hyperliquid publishes no historical order books, so that guard is
+neutralised and named in every report rather than guessed).
 ### Verify a run (no keys, no trust)
 
 ```bash
@@ -277,7 +306,10 @@ packages/
                verdict.ts (DecisionInput + hashes), ruleset.ts (content-addressed rules),
                vectors/decisions.json (golden conformance vectors)
   adapter-hl/  Hyperliquid adapter: mainnet reads, testnet writes, HIP-3 asset ids,
-               cloid idempotency, venue-sourced daily PnL; ./fixture = offline venue
+               cloid idempotency, venue-sourced daily PnL; ./fixture = offline venue,
+               ./public-reads = keyless user-parameterised reads for shadow mode
+  replay/      shadow replay: real fills -> reconstructed account state -> the same
+               engine, with exact/approximate/not-evaluated kept apart
   truth/       fill-vs-position reconciliation + ledger
   audit/       Veto Receipts: canonical.ts (the only hashing entry point),
                merkle.ts, receiptkey.ts (ed25519), project.ts (state = projection of the log)
@@ -287,7 +319,10 @@ apps/
                server.ts (entry, single-writer lock), dashboard.ts (console), openapi.ts
   proposer-ai/ LLM → Intent IR reference proposer (no keys, no vote)
   demo-cli/    RiskBroker + CLI: init wizard, preflight, four-act demo, unwind,
-               verify.ts (L0-L3 verifier), anchor.ts, vectors-gen.ts, keys.ts (key roles)
+               verify.ts (L0-L3 verifier), attacks.ts (pnpm prove), shadow.ts
+               (keyless account report), anchor.ts, vectors-gen.ts, keys.ts
+  shadowd/     read-only HTTP service: paste an address, get the shadow report.
+               Holds no key and cannot trade — the deployable "live product link"
 contracts/
   VetoAnchor.sol   anchors a receipt Merkle root on HyperEVM (seq must advance)
 configs/

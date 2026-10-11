@@ -55,6 +55,12 @@
 
 **目标**：新用户在 60 秒内看到一份关于**他自己账户**的报告。
 
+> **进度（已实现）**：F1.1 地址即身份、F1.2 历史回放器、F1.3 诚实处理、F1.4 报告页的 CLI 版本、
+> 以及 `packages/replay` + `apps/demo-cli/src/shadow.ts` + `apps/shadowd`（只读托管服务）已落地。
+> 实测：任意活跃地址 2000 笔成交，5 次 venue 调用，输出交易画像 + 违规清单 + 归因盈亏 + 5 条明确的"不知道"。
+> **还没做**：F1.5 分享链接（托管服务上线后即成立）、按时间分页取更长的历史窗口（venue 单次上限 2000 笔，
+> 高频账户只能看到几十分钟）。
+
 - [ ] **F1.1 地址即身份（地基）**
   把 adapter 的账户读接口从 `this.config.accountAddress` 改成显式入参 `getAccountState(network, dex, user)`，
   `getRecentFills(network, user, from)`，`getOpenOrders(user)`。

@@ -22,6 +22,7 @@
     "preflight": "tsx apps/demo-cli/src/index.ts doctor",
     "verify": "tsx apps/demo-cli/src/index.ts verify",
     "prove": "tsx apps/demo-cli/src/index.ts prove",
+    "shadow": "tsx apps/demo-cli/src/index.ts shadow",
     "ruleset:stamp": "tsx apps/demo-cli/src/ruleset-stamp.ts",
     "vectors:gen": "tsx apps/demo-cli/src/vectors-gen.ts",
     "anchor": "tsx apps/demo-cli/src/anchor.ts",

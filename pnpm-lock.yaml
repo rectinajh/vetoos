@@ -72,6 +72,9 @@ importers:
       '@vetoos/intent':
         specifier: workspace:*
         version: link:../../packages/intent
+      '@vetoos/replay':
+        specifier: workspace:*
+        version: link:../../packages/replay
       '@vetoos/risk':
         specifier: workspace:*
         version: link:../../packages/risk
@@ -99,6 +102,9 @@ importers:
       '@nktkas/hyperliquid':
         specifier: ^0.25.0
         version: 0.25.9(typescript@5.9.3)
+      '@vetoos/replay':
+        specifier: workspace:*
+        version: link:../replay
 
   packages/audit: {}
 
@@ -113,6 +119,15 @@ importers:
       zod:
         specifier: ^4.0.0
         version: 4.6.5
+
+  packages/replay:
+    dependencies:
+      '@vetoos/intent':
+        specifier: workspace:*
+        version: link:../intent
+      '@vetoos/risk':
+        specifier: workspace:*
+        version: link:../risk
 
   packages/risk:
     dependencies:

@@ -114,8 +114,35 @@ We never sell signals and never take custody; the key stays with the operator (H
   permission limits — VetoOS is the missing rules layer on top.
 - **Built-in validation:** the repo ships the exact integration a user would do (5 lines);
   the console's counterfactual panel ("loss blocked by vetoes") is the metric a buyer cares about.
-- **TODO before submission (team):** 2–3 named conversations with HL bot operators / HIP-3 deployers
-  (quote + what they'd pay); post the demo in HL Discord / X and link the thread here as traction.
+- **The instrument we now have (shipped):** @@pnpm shadow <address>@@ turns the question from
+  "do you think this is useful?" into "here is what it would have refused in **your** last 2000
+  fills" — a concrete number a trader can argue with. That is the validation loop, and it costs
+  the user nothing (no key, no signup).
+- **FILL IN BEFORE THE DEADLINE (only the team can write this):** 2–3 named conversations with HL
+  bot operators / HIP-3 deployers — who, what they said, what they would pay. Run each of them
+  through @@pnpm shadow <their address>@@ first and quote their reaction; that is far stronger
+  than paraphrasing a chat. Then post the demo in HL Discord / X and link the thread here.
+
+### The product surface (what a user actually touches)
+
+| Step | What it asks of the user | What they get | Status |
+|---|---|---|---|
+| `pnpm demo:offline` → `pnpm verify` → `pnpm prove` | nothing — no keys, no network | the four acts, then a verifier that catches four kinds of tampering | shipped |
+| `pnpm shadow <address>` | a public Hyperliquid address, nothing else | a report on their own last 2000 fills: trading profile, what the gate would have refused, attributed PnL, and five explicit caveats | shipped |
+| hosted shadow report | a URL | the same report in a browser | `apps/shadowd` — read-only service, no keys, deployable from this repo |
+| `pnpm brokerd` with an approved agent wallet | an agent key the user approves in their own wallet | live enforcement on their account | shipped, testnet |
+
+The shadow path is the wedge, and it is deliberately the least invasive thing we could build:
+it needs no key, holds no custody, and cannot place an order. A stranger can point it at an
+address and see their **own** numbers before deciding whether to trust us with anything.
+
+**What a shadow report says, and what it refuses to say.** It separates three categories
+instead of blurring them: rules evaluated exactly (notional, same-side adds, cool-down, rate,
+daily realized loss, position size), rules reconstructed approximately (equity, walked back
+from today's account value through realized PnL, fees, funding and ledger movements, so the
+leverage and margin verdicts are labelled approximate), and rules **not evaluated at all**
+(book depth — Hyperliquid publishes no historical order books, so the depth guard is
+neutralised and named in every report rather than guessed).
 
 ### Distribution
 
@@ -123,6 +150,26 @@ We never sell signals and never take custody; the key stays with the operator (H
 2. Hyperliquid builder & trader communities (Discord, X), HIP-3 deployer outreach ("ship a brake with your dex").
 3. Integrations: policy templates per community (conservative / degen / fund), Python + TS clients,
    OpenAPI; later a WebSocket feed so other dashboards can embed the gate.
+
+### Accelerator screen (Tier 3 — private to Colosseum, still required)
+
+**How do you know people actually need this?**
+We do not claim to know yet, and that is the honest state. What we have is a way to test it
+per account instead of asserting it: the shadow report takes any public address and answers
+"would this rulebook have changed anything for **you**?" with the account's own fills. That is
+the conversation opener, and it produces evidence rather than opinion. The recurring public
+signal — agents and bots that keep adding to a losing position, and the Hyperliquid
+agent-wallet model itself (a trade-only key is already a permission limit people accept) —
+points the same way, but a signal is not validation.
+
+**How far along are you? Do you have users?**
+No paying users. What exists and is verifiable today: a working broker (real mainnet HIP-3
+reads, real testnet fills including one on a builder dex), a deterministic rule engine with
+185 tests, a Veto Receipt chain that a third party can recompute, an attack suite that catches
+four kinds of tampering, and a read-only shadow report any address can be run through.
+Next 30 days: 10 addresses through the shadow report, 3 of them running it continuously, and
+a written answer from each on which refusal they disagreed with — that is the first real
+product signal we will have.
 
 ### 90-day plan
 
