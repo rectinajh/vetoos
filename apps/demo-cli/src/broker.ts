@@ -340,12 +340,13 @@ export class RiskBroker {
   }
 
   private async processIntent(intent: Intent): Promise<SubmitResult> {
-    const now = Date.now();
-    this.pushHistory({ ts: now, market: intent.market, side: intent.side, kind: "intent" });
+    // Arrival clock: when the proposal reached the broker.
+    const receivedAt = Date.now();
+    this.pushHistory({ ts: receivedAt, market: intent.market, side: intent.side, kind: "intent" });
     // `at` is the broker's own clock for this event: the receipt chain is the
     // source of truth for the guard windows, so the timestamp must live here
     // (projectHistory rebuilds the engine's history from exactly this field).
-    this.audit.record("intent_received", { intent, at: now });
+    this.audit.record("intent_received", { intent, at: receivedAt });
 
     // 2. Gather REAL inputs for the deterministic engine.
     const snapshot = await this.adapter.getMarketSnapshot(intent.market, READ_NETWORK, intent.side);
@@ -359,6 +360,11 @@ export class RiskBroker {
     // read-side mark can never let a larger-than-allowed order through.
     const execMark = await this.executionMark(intent.market);
     const evalMark = Math.max(snapshot.markPx, execMark ?? 0);
+    // Decision clock: venue reads can outlast a compressed cool-down, so every
+    // time window must start when the brake actually fires — NOT at request
+    // arrival. This one value is used by the engine, by the receipt and by the
+    // history event, which is what keeps "state = projection of the log" exact.
+    const now = Date.now();
     // Venue position keys may be "BTC" or "xyz:XYZ100" — match both forms.
     let positionSize = 0;
     for (const [coin, szi] of account.positions) {
@@ -441,6 +447,9 @@ export class RiskBroker {
       },
     );
     if (decision.decision === "deny") {
+      // Same instant as the receipt's snapshot.now — the projection reads it
+      // back from there, so a second Date.now() here would make the chain and
+      // the live state disagree by a few milliseconds.
       this.pushHistory({ ts: now, market: intent.market, side: intent.side, kind: "deny" });
       this.recordProcessed(intent.id, { decision, ts: now });
       this.saveState();
@@ -485,7 +494,8 @@ export class RiskBroker {
           verdictHash: verdictHashOf(late),
         },
       );
-      this.pushHistory({ ts: Date.now(), market: intent.market, side: intent.side, kind: "deny" });
+      // lateNow is the instant the re-evaluation used, and the receipt recorded.
+      this.pushHistory({ ts: lateNow, market: intent.market, side: intent.side, kind: "deny" });
       this.recordProcessed(intent.id, { decision: late, ts: now });
       this.saveState();
       return { decision: late };
