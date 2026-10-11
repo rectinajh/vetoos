@@ -425,6 +425,38 @@ export function shadowReplay(input: ShadowInput): ShadowReport {
   };
 }
 
+/**
+ * Split the attributed PnL of refused orders into the loss the gate would
+ * have avoided and the later gain it would have given up. Net is the same
+ * number as `summary.blockedAttributedPnlUsd`: negative means the refusals
+ * kept money. Orders whose layer never closed inside the window are counted
+ * in `unattributed` and are not treated as zero.
+ */
+export function refusalValue(report: ShadowReport): {
+  avoidedLossUsd: number;
+  forgoneGainUsd: number;
+  netAttributedPnlUsd: number;
+  unattributed: number;
+} {
+  let avoidedLossUsd = 0;
+  let forgoneGainUsd = 0;
+  let unattributed = 0;
+  for (const episode of report.blocked) {
+    if (episode.attributedPnlUsd === undefined) {
+      unattributed += 1;
+      continue;
+    }
+    if (episode.attributedPnlUsd < 0) avoidedLossUsd += -episode.attributedPnlUsd;
+    else if (episode.attributedPnlUsd > 0) forgoneGainUsd += episode.attributedPnlUsd;
+  }
+  return {
+    avoidedLossUsd,
+    forgoneGainUsd,
+    netAttributedPnlUsd: report.summary.blockedAttributedPnlUsd,
+    unattributed,
+  };
+}
+
 /** Group blocked orders by the rule that stopped them — the headline table. */
 export function blockedByRule(report: ShadowReport): { code: string; count: number; notionalUsd: number; attributedPnlUsd: number }[] {
   const byCode = new Map<string, { code: string; count: number; notionalUsd: number; attributedPnlUsd: number }>();

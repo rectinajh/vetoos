@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Policy } from "@vetoos/risk";
-import { blockedByRule, shadowReplay, type ReplayFill, type ShadowInput } from "./index.js";
+import { blockedByRule, refusalValue, shadowReplay, type ReplayFill, type ShadowInput } from "./index.js";
 
 const POLICY: Policy = {
   version: "0.1",
@@ -151,6 +151,11 @@ describe("shadow replay", () => {
     expect(report.blocked).toHaveLength(1);
     expect(report.blocked[0]!.attributedPnlUsd).toBeCloseTo(-250, 6);
     expect(report.summary.blockedAttributedPnlUsd).toBeCloseTo(-250, 6);
+    expect(refusalValue(report)).toMatchObject({
+      avoidedLossUsd: 250,
+      forgoneGainUsd: 0,
+      unattributed: 0,
+    });
   });
 
   it("groups refusals by rule for the headline table", () => {

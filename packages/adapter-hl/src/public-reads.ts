@@ -23,6 +23,16 @@ const ENDPOINTS: Record<PublicNetwork, string> = {
   testnet: "https://api.hyperliquid-testnet.xyz",
 };
 
+/** One open perp position, as the venue reports it right now. */
+export interface OpenPosition {
+  coin: string;
+  /** Signed size. Positive is long, negative is short. */
+  size: number;
+  entryPx: number;
+  unrealizedPnlUsd: number;
+  positionValueUsd: number;
+}
+
 export interface PublicReadProvenance {
   endpoint: string;
   requestHash: string;
@@ -108,12 +118,35 @@ export class PublicReader {
 
   /** Current account value: the anchor the equity walk starts from. */
   async getAccountValue(user: string, dex?: string | null): Promise<number> {
-    const state = await this.info<{ marginSummary?: { accountValue?: string } }>({
+    const state = await this.clearinghouse(user, dex);
+    return state.equityUsd;
+  }
+
+  /**
+   * Account value plus open positions for one clearinghouse.
+   * The main book is `dex` omitted; a builder dex such as "xyz" is its own book.
+   */
+  async clearinghouse(user: string, dex?: string | null): Promise<{ equityUsd: number; positions: OpenPosition[] }> {
+    const state = await this.info<RawClearinghouse>({
       type: "clearinghouseState",
       user,
       ...(dex ? { dex } : {}),
     });
-    return Number(state.marginSummary?.accountValue ?? 0);
+    const positions: OpenPosition[] = [];
+    for (const row of state.assetPositions ?? []) {
+      const position = row.position;
+      if (!position?.coin) continue;
+      const size = Number(position.szi ?? 0);
+      if (!Number.isFinite(size) || size === 0) continue;
+      positions.push({
+        coin: position.coin,
+        size,
+        entryPx: Number(position.entryPx ?? 0),
+        unrealizedPnlUsd: Number(position.unrealizedPnl ?? 0),
+        positionValueUsd: Number(position.positionValue ?? 0),
+      });
+    }
+    return { equityUsd: Number(state.marginSummary?.accountValue ?? 0), positions };
   }
 
   /** szDecimals and maxLeverage per coin — needed to size and price honestly. */
@@ -149,6 +182,19 @@ export class PublicReader {
       .map((f) => ({ time: Number(f.time), usdc: Number(f.delta?.usdc ?? 0) }))
       .filter((f) => Number.isFinite(f.usdc) && f.usdc !== 0);
   }
+}
+
+interface RawClearinghouse {
+  marginSummary?: { accountValue?: string };
+  assetPositions?: {
+    position?: {
+      coin?: string;
+      szi?: string;
+      entryPx?: string;
+      unrealizedPnl?: string;
+      positionValue?: string;
+    };
+  }[];
 }
 
 interface RawFill {

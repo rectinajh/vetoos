@@ -25,7 +25,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { buildShadowReport, type ShadowRun } from "@vetoos/demo-cli/shadow";
-import { blockedByRule, type ShadowReport } from "@vetoos/replay";
+import { blockedByRule, refusalValue, type ShadowEpisode, type ShadowReport } from "@vetoos/replay";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -274,11 +274,13 @@ const CSS = `
   color-scheme: light dark;
   --bg: #ffffff; --fg: #171a20; --muted: #5c626e; --line: #dde1e8;
   --panel: #f6f7f9; --accent: #1d5fd0; --accent-fg: #ffffff;
+  --good: #1a7f37; --bad: #cf222e;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0f1216; --fg: #e5e8ee; --muted: #98a1af; --line: #262c36;
     --panel: #161a21; --accent: #7aa7ff; --accent-fg: #0b0e12;
+    --good: #3fb950; --bad: #f85149;
   }
 }
 * { box-sizing: border-box; }
@@ -315,6 +317,15 @@ button {
 .fact dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .fact dd { margin: .3rem 0 0; font-size: 1.3rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .fact .sub { font-size: .8rem; color: var(--muted); }
+.verdict { border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.1rem 1.1rem; background: var(--panel); margin: 1.15rem 0 1.4rem; }
+.verdict h2 { margin: 0 0 .35rem; }
+.verdict .lead { margin: 0 0 .85rem; font-size: 1.05rem; }
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .7rem; }
+.compare div { border: 1px solid var(--line); border-radius: 9px; padding: .75rem .85rem; background: var(--bg); }
+.compare dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.compare dd { margin: .25rem 0 0; font-size: 1.55rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.compare .loss dd { color: var(--good); }
+.compare .gain dd { color: var(--bad); }
 .scroll { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: .92rem; }
 th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
@@ -350,8 +361,8 @@ function homePage(): string {
     `<h1>VetoOS shadow report</h1>
 <p>Paste a public Hyperliquid address. This service reads that account's public
 fills and re-judges every one of them against the shipped VetoOS conservative
-rulebook, so you can see which orders a risk gate would have allowed and which it
-would have refused.</p>
+rulebook. The report shows which orders would have been allowed, which would
+have been refused, and how much loss those refusals would have avoided.</p>
 
 <form method="get" action="/report">
   <label for="address">Hyperliquid address</label>
@@ -400,7 +411,14 @@ function reportPage(run: ShadowRun, fromCache: boolean): string {
   const summary = report.summary;
   const profile = report.profile;
   const byRule = blockedByRule(report);
-  const shown = report.blocked.slice(0, 10);
+  const latest = (decision: ShadowEpisode["decision"]): ShadowEpisode[] =>
+    report.episodes
+      .filter((episode) => episode.decision === decision)
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 10);
+  const accepted = latest("allow");
+  const refused = latest("deny");
+  const value = refusalValue(report);
   const address = esc(report.user);
 
   const ruleRows =
@@ -432,56 +450,92 @@ ${ruleRows}
 </tbody>
 </table></div>`;
 
-  const exampleRows = shown
-    .map((e) => {
-      const when = utc(e.ts);
-      const attributed = e.attributedPnlUsd === undefined ? "—" : signed(e.attributedPnlUsd);
-      return (
-        "<tr><td class=\"n\">" +
-        esc(when) +
-        "</td><td>" +
-        esc(e.coin) +
-        "</td><td>" +
-        esc(e.side) +
-        "</td><td class=\"n\">" +
-        num(e.size, 8) +
-        "</td><td class=\"n\">" +
-        num(e.px, 6) +
-        "</td><td class=\"n\">" +
-        usd(e.notionalUsd) +
-        "</td><td><code>" +
-        esc(e.code) +
-        "</code></td><td>" +
-        esc(e.message_en) +
-        "</td><td class=\"n\">" +
-        esc(attributed) +
-        "</td></tr>"
-      );
-    })
-    .join("");
-
-  const examplesTable =
-    shown.length === 0
-      ? ""
-      : `<h2>First ${num(shown.length)} refused orders</h2>
-<div class="scroll"><table>
+  const orderTable = (rows: ShadowEpisode[], total: number, label: string): string => {
+    if (rows.length === 0) return "<p>None in this window.</p>";
+    const body = rows
+      .map((episode) => {
+        const attributed = episode.attributedPnlUsd === undefined ? "—" : signed(episode.attributedPnlUsd);
+        return (
+          "<tr><td class=\"n\">" +
+          esc(utc(episode.ts)) +
+          "</td><td>" +
+          esc(episode.coin) +
+          "</td><td>" +
+          esc(episode.side) +
+          "</td><td class=\"n\">" +
+          num(episode.size, 8) +
+          "</td><td class=\"n\">" +
+          num(episode.px, 6) +
+          "</td><td class=\"n\">" +
+          usd(episode.notionalUsd) +
+          "</td><td><code>" +
+          esc(episode.code) +
+          "</code></td><td>" +
+          esc(episode.message_en) +
+          "</td><td class=\"n\">" +
+          esc(attributed) +
+          "</td></tr>"
+        );
+      })
+      .join("");
+    const more =
+      total > rows.length
+        ? `<p class="hint">Showing the latest ${num(rows.length)} of ${num(total)} ${label}. The full list is in the JSON report.</p>`
+        : "";
+    return `<div class="scroll"><table>
 <thead><tr><th scope="col">time (UTC)</th><th scope="col">market</th><th scope="col">side</th><th scope="col" class="n">size</th><th scope="col" class="n">price</th><th scope="col" class="n">notional</th><th scope="col">rule</th><th scope="col">why</th><th scope="col" class="n">attributed PnL</th></tr></thead>
 <tbody>
-${exampleRows}
+${body}
 </tbody>
 </table></div>
-${report.blocked.length > shown.length ? `<p class="hint">Showing ${num(shown.length)} of ${num(report.blocked.length)} refused orders. The full list is in the JSON report.</p>` : ""}`;
+${more}`;
+  };
+
+  const positionRows = [...run.positions].sort(
+    (a, b) => Math.abs(b.positionValueUsd) - Math.abs(a.positionValueUsd),
+  );
+  const positionsTable =
+    positionRows.length === 0
+      ? "<p>No open perp position on the main book, or on the builder dexes this account traded in the window.</p>"
+      : `<div class="scroll"><table>
+<thead><tr><th scope="col">market</th><th scope="col">side</th><th scope="col" class="n">size</th><th scope="col" class="n">entry</th><th scope="col" class="n">value</th><th scope="col" class="n">unrealized PnL</th></tr></thead>
+<tbody>
+${positionRows
+  .map(
+    (position) =>
+      "<tr><td>" +
+      esc(position.coin) +
+      "</td><td>" +
+      (position.size > 0 ? "long" : "short") +
+      "</td><td class=\"n\">" +
+      num(position.size, 8) +
+      "</td><td class=\"n\">" +
+      num(position.entryPx, 6) +
+      "</td><td class=\"n\">" +
+      usd(position.positionValueUsd) +
+      "</td><td class=\"n\">" +
+      signed(position.unrealizedPnlUsd) +
+      "</td></tr>",
+  )
+  .join("")}
+</tbody>
+</table></div>
+<p class="hint">This is the venue's position right now. It is not part of the replay.</p>`;
+
+  const verdictLead =
+    value.avoidedLossUsd === 0 && value.forgoneGainUsd === 0
+      ? "None of the refused orders closed inside this window, so there is no dollar result to attribute yet."
+      : value.netAttributedPnlUsd < 0
+        ? "Net, refusing these orders would have kept " + usd(Math.abs(value.netAttributedPnlUsd)) + "."
+        : value.netAttributedPnlUsd > 0
+          ? "Net, refusing these orders would have given up " + usd(value.netAttributedPnlUsd) + " in later gains."
+          : "Net, the refused orders attributed to zero.";
 
   const constraints =
     profile.bindingConstraints.length === 0
       ? ""
       : `<h2>Where this rulebook and this account disagree</h2>
 <ul>${profile.bindingConstraints.map((c) => "<li>" + esc(c) + "</li>").join("")}</ul>`;
-
-  const pnlNote =
-    summary.blockedAttributedPnlUsd < 0
-      ? "Negative means the refused orders lost money after they were sent: the gate would have kept that amount."
-      : "Positive means the refused orders made money after they were sent: the gate would have cost that amount.";
 
   return page(
     "Shadow report " + report.user,
@@ -491,13 +545,31 @@ ${report.blocked.length > shown.length ? `<p class="hint">Showing ${num(shown.le
 Replayed over ${esc(utc(report.windowFrom))} → ${esc(utc(report.windowTo))} UTC from ${num(report.fillsConsidered)} public fills read in ${num(venueCalls)} venue calls.
 This is a counterfactual: those trades already happened, and no order was ever sent by this service.</p>
 
+<section class="verdict">
+  <h2>What the refusals were worth</h2>
+  <p class="lead">${esc(verdictLead)}</p>
+  <dl class="compare">
+    <div class="loss"><dt>losses avoided</dt><dd>${usd(value.avoidedLossUsd)}</dd></div>
+    <div class="gain"><dt>gains given up</dt><dd>${usd(value.forgoneGainUsd)}</dd></div>
+  </dl>
+  <p class="hint">Losses avoided is the money refused orders later lost. Gains given up is the money refused orders later made. Net ${signed(value.netAttributedPnlUsd)}.${value.unattributed > 0 ? " " + num(value.unattributed) + " refused orders never closed inside this window, so they are not in either number." : ""}</p>
+</section>
+
 <dl class="facts">
   <div class="fact"><dt>orders replayed</dt><dd>${num(summary.totalOrders)}</dd></div>
+  <div class="fact"><dt>would be allowed</dt><dd>${num(summary.allowed)}</dd></div>
   <div class="fact"><dt>would be refused</dt><dd>${num(summary.blocked)} <span class="sub">${esc(pct(summary.blockRate))}</span></dd></div>
   <div class="fact"><dt>refused notional</dt><dd>${usd(summary.blockedNotionalUsd)}</dd></div>
-  <div class="fact"><dt>attributed PnL of refused orders</dt><dd>${signed(summary.blockedAttributedPnlUsd)}</dd></div>
 </dl>
-<p class="hint">${esc(pnlNote)}</p>
+
+<h2>Open positions</h2>
+${positionsTable}
+
+<h2>Latest accepted orders</h2>
+${orderTable(accepted, summary.allowed, "accepted orders")}
+
+<h2>Latest refused orders</h2>
+${orderTable(refused, summary.blocked, "refused orders")}
 
 <h2>Who this account is</h2>
 <table>
@@ -522,8 +594,6 @@ policy hash <code>${esc(report.policySemanticHash.slice(0, 16))}</code></p>
 
 <h2>Refusals by rule</h2>
 ${byRuleTable}
-
-${examplesTable}
 
 <h2>What this report does not know</h2>
 <ul>${report.caveats.map((c) => "<li>" + esc(c) + "</li>").join("")}</ul>
@@ -587,6 +657,7 @@ type ShadowResponse = ShadowReport & {
   policy: ShadowRun["policy"];
   scaled: boolean;
   venueCalls: number;
+  positions: ShadowRun["positions"];
   /** Present and false only for ?full=1; otherwise says how much was cut. */
   truncated: false | { episodes: number; blocked: number; note: string };
 };
@@ -618,6 +689,7 @@ function sendReport(
       policy: run.policy,
       scaled: run.scaled,
       venueCalls: run.venueCalls,
+      positions: run.positions,
       truncated: full
         ? false
         : {

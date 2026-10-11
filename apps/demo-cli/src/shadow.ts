@@ -21,9 +21,9 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { PublicReader } from "@vetoos/adapter-hl/public-reads";
+import { PublicReader, type OpenPosition } from "@vetoos/adapter-hl/public-reads";
 import { hashOf } from "@vetoos/audit";
-import { blockedByRule, shadowReplay, type MarketMeta, type ShadowReport } from "@vetoos/replay";
+import { blockedByRule, refusalValue, shadowReplay, type MarketMeta, type ShadowReport } from "@vetoos/replay";
 import { policySchema, type Policy } from "@vetoos/risk";
 import { repoRoot } from "./config.js";
 
@@ -61,6 +61,8 @@ export interface ShadowRun {
   scaled: boolean;
   /** How many venue calls produced this report (provenance, for the reader). */
   venueCalls: number;
+  /** Open perp positions at the moment of the read. Not part of the replay. */
+  positions: OpenPosition[];
 }
 
 /**
@@ -79,10 +81,12 @@ export async function buildShadowReport(
     errors.push(what + ": " + String(err instanceof Error ? err.message : err));
   };
 
-  const equity = await reader.getAccountValue(address).catch((err) => {
+  const mainBook = await reader.clearinghouse(address).catch((err) => {
     note("account value")(err);
-    return 0;
+    return { equityUsd: 0, positions: [] as OpenPosition[] };
   });
+  const equity = mainBook.equityUsd;
+  const positions = [...mainBook.positions];
   const { policy, scaled } = scalePolicyToAccount(base, equity);
 
   const [fills, meta] = await Promise.all([
@@ -96,6 +100,21 @@ export async function buildShadowReport(
     throw new Error(
       "no fills for " + address + " — the address has never traded perps on Hyperliquid, or it is not an account address",
     );
+  }
+
+  const dexes = [
+    ...new Set(
+      fills
+        .map((fill) => (fill.coin.includes(":") ? fill.coin.slice(0, fill.coin.indexOf(":")) : ""))
+        .filter((dex) => dex.length > 0),
+    ),
+  ];
+  for (const dex of dexes) {
+    const book = await reader.clearinghouse(address, dex).catch((err) => {
+      note("positions on " + dex)(err);
+      return undefined;
+    });
+    if (book) positions.push(...book.positions);
   }
 
   const since = fills[0]!.time - 86_400_000;
@@ -124,7 +143,7 @@ export async function buildShadowReport(
   // A gap in the inputs is a caveat on the report, never a silent assumption.
   for (const e of errors) report.caveats.push("Input unavailable — " + e);
 
-  return { report, policy, scaled, venueCalls: reader.provenance.length };
+  return { report, policy, scaled, venueCalls: reader.provenance.length, positions };
 }
 
 const usd = (n: number): string =>
@@ -199,19 +218,48 @@ export function renderShadowReport(run: ShadowRun): string {
   }
 
   const s = report.summary;
+  const value = refusalValue(report);
   out.push("");
   out.push("RESULT");
   out.push(
-    "  " + s.totalOrders + " orders replayed · " + s.blocked + " would have been refused (" + (s.blockRate * 100).toFixed(1) + "%)",
+    "  " +
+      s.totalOrders +
+      " orders replayed · " +
+      s.allowed +
+      " would have been allowed · " +
+      s.blocked +
+      " would have been refused (" +
+      (s.blockRate * 100).toFixed(1) +
+      "%)",
   );
   out.push("  refused notional: " + usd(s.blockedNotionalUsd));
+  out.push("  losses the refusals would have avoided: " + usd(value.avoidedLossUsd));
+  out.push("  gains those refusals would have given up: " + usd(value.forgoneGainUsd));
   out.push(
-    "  attributed PnL of refused orders: " +
-      signed(s.blockedAttributedPnlUsd) +
-      (s.blockedAttributedPnlUsd < 0
+    "  net attributed PnL of refused orders: " +
+      signed(value.netAttributedPnlUsd) +
+      (value.netAttributedPnlUsd < 0
         ? "  (the gate would have kept this much)"
         : "  (the gate would have cost you this much)"),
   );
+
+  if (run.positions.length > 0) {
+    out.push("");
+    out.push("OPEN POSITIONS (now, not part of the replay)");
+    for (const position of run.positions) {
+      out.push(
+        "  " +
+          position.coin.padEnd(16) +
+          (position.size > 0 ? "long " : "short") +
+          "  " +
+          String(position.size) +
+          " @ " +
+          position.entryPx +
+          "  uPnL " +
+          signed(position.unrealizedPnlUsd),
+      );
+    }
+  }
 
   const byRule = blockedByRule(report);
   if (byRule.length > 0) {
