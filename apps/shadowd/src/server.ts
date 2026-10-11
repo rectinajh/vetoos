@@ -33,6 +33,9 @@ const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 10 * 60_000;
 const RATE_LIMIT_SWEEP_AT = 4096;
 const CACHE_TTL_MS = 120_000;
+/** The page opens on this public account so a visitor sees the result before typing. */
+const DEMO_ADDRESS = "0xf5d81a135f756ca16544e53c20fc20643ec3ad53";
+const DEMO_CACHE_MS = 10 * 60_000;
 const CACHE_MAX_ENTRIES = 256;
 const MAX_CONCURRENT_BUILDS = 2;
 const MAX_QUEUED_BUILDS = 16;
@@ -152,12 +155,12 @@ function cacheGet(key: string): ShadowRun | undefined {
   return entry.run;
 }
 
-function cacheSet(key: string, run: ShadowRun): void {
+function cacheSet(key: string, run: ShadowRun, ttlMs = CACHE_TTL_MS): void {
   if (cache.size >= CACHE_MAX_ENTRIES) {
     const oldest = cache.keys().next();
     if (!oldest.done) cache.delete(oldest.value);
   }
-  cache.set(key, { run, expiresAt: Date.now() + CACHE_TTL_MS });
+  cache.set(key, { run, expiresAt: Date.now() + ttlMs });
 }
 
 /* ------------------------------------------------------------------------- *
@@ -355,58 +358,19 @@ ${body}
 `;
 }
 
-function homePage(): string {
-  return page(
-    "VetoOS shadow report",
-    `<h1>VetoOS shadow report</h1>
-<p>Paste a public Hyperliquid address. This service reads that account's public
-fills and re-judges every one of them against the shipped VetoOS conservative
-rulebook. The report shows which orders would have been allowed, which would
-have been refused, and how much loss those refusals would have avoided.</p>
-
-<form method="get" action="/report">
-  <label for="address">Hyperliquid address</label>
+function tryAnotherForm(): string {
+  return `<form method="get" action="/report">
+  <label for="address">Try another address</label>
   <div class="row">
     <input id="address" name="address" type="text" required spellcheck="false" autocomplete="off"
-           placeholder="0x0000000000000000000000000000000000000000"
-           pattern="0x[0-9a-fA-F]{40}" aria-describedby="address-help">
-    <button type="submit">Build report</button>
+           placeholder="0x… public Hyperliquid address"
+           pattern="0x[0-9a-fA-F]{40}">
+    <button type="submit">Run</button>
   </div>
-  <p id="address-help" class="hint">40 hex characters, 0x-prefixed. This is a public account
-  address, never a key. The address is only used to read public fills.</p>
-</form>
-
-<h2>What this service is not</h2>
-<ul>
-  <li>No private key is needed, and none is held. This service cannot place, modify or cancel
-  orders: it has no wallet, no signer and no trading endpoint.</li>
-  <li>It is read-only. The only outbound calls are public Hyperliquid info requests for the
-  address you typed.</li>
-  <li>The analysis is a counterfactual. It replays trades that already happened against a
-  rulebook that was never in force for that account. It is not advice, not a prediction, and
-  not a statement about what the account should have done.</li>
-  <li>Nothing is stored. Reports are cached in memory for two minutes and are gone on restart;
-  nothing is written to disk.</li>
-</ul>
-
-<h2>What it does under load</h2>
-<ul>
-  <li>Five report builds per IP per ten minutes, then HTTP 429 with the wait time.</li>
-  <li>At most two builds run at once; further requests queue briefly rather than hammering
-  Hyperliquid's public API.</li>
-  <li>A successful report is reused for 120 seconds, so refreshing is free.</li>
-</ul>
-
-<footer class="hint">
-  <p>Machine-readable: <a href="/api/shadow?address=0xf5d81a135f756ca16544e53c20fc20643ec3ad53">/api/shadow?address=0x...</a>
-  returns the full report as JSON. Health: <a href="/healthz">/healthz</a>.</p>
-  <p>The same engine backs <code>pnpm shadow &lt;address&gt;</code> in the VetoOS repository, so the
-  CLI and this page cannot disagree about a report.</p>
-</footer>`,
-  );
+</form>`;
 }
 
-function reportPage(run: ShadowRun, fromCache: boolean): string {
+function reportPage(run: ShadowRun, fromCache: boolean, example: boolean): string {
   const { report, policy, scaled, venueCalls } = run;
   const summary = report.summary;
   const profile = report.profile;
@@ -539,13 +503,7 @@ ${positionRows
 
   return page(
     "Shadow report " + report.user,
-    `<h1>Shadow report</h1>
-<p class="addr">${address}</p>
-<p class="hint">Tested against the conservative rulebook${scaled ? ", with the order cap and daily loss limit scaled to this account's equity" : ""}.
-Replayed over ${esc(utc(report.windowFrom))} → ${esc(utc(report.windowTo))} UTC from ${num(report.fillsConsidered)} public fills read in ${num(venueCalls)} venue calls.
-This is a counterfactual: those trades already happened, and no order was ever sent by this service.</p>
-
-<section class="verdict">
+    `<section class="verdict">
   <h2>What the refusals were worth</h2>
   <p class="lead">${esc(verdictLead)}</p>
   <dl class="compare">
@@ -554,6 +512,12 @@ This is a counterfactual: those trades already happened, and no order was ever s
   </dl>
   <p class="hint">Losses avoided is the money refused orders later lost. Gains given up is the money refused orders later made. Net ${signed(value.netAttributedPnlUsd)}.${value.unattributed > 0 ? " " + num(value.unattributed) + " refused orders never closed inside this window, so they are not in either number." : ""}</p>
 </section>
+
+<p class="addr">${address}</p>
+<p class="hint">${example ? "This public account is already filled in, so the result is on screen before you type anything. " : ""}Tested against the conservative rulebook${scaled ? ", with the order cap and daily loss limit scaled to this account's equity" : ""}.
+Replayed over ${esc(utc(report.windowFrom))} → ${esc(utc(report.windowTo))} UTC from ${num(report.fillsConsidered)} public fills read in ${num(venueCalls)} venue calls.
+No order was sent by this service.</p>
+${tryAnotherForm()}
 
 <dl class="facts">
   <div class="fact"><dt>orders replayed</dt><dd>${num(summary.totalOrders)}</dd></div>
@@ -648,7 +612,7 @@ function fail(
       esc(title) +
       '</h1><p>' +
       esc(detail) +
-      '</p><p class="hint"><a href="/">Back to the form</a></p>',
+      '</p><p class="hint"><a href="/">Back to the example</a></p>',
   );
   send(res, status, HTML_TYPE, body, { ...HTML_HEADERS, ...extra });
 }
@@ -671,6 +635,7 @@ function sendReport(
   run: ShadowRun,
   fromCache: boolean,
   full = false,
+  example = false,
 ): void {
   if (format === "json") {
     // A full report over 2,000 fills is several megabytes, almost all of it
@@ -701,7 +666,7 @@ function sendReport(
     send(res, 200, JSON_TYPE, JSON.stringify(payload) + "\n");
     return;
   }
-  send(res, 200, HTML_TYPE, reportPage(run, fromCache), HTML_HEADERS);
+  send(res, 200, HTML_TYPE, reportPage(run, fromCache, example), HTML_HEADERS);
 }
 
 /**
@@ -713,6 +678,7 @@ async function reportRoute(
   res: ServerResponse,
   url: URL,
   format: Format,
+  opts: { skipLimit?: boolean; cacheMs?: number; example?: boolean } = {},
 ): Promise<void> {
   const address = (url.searchParams.get("address") ?? "").trim();
   if (!ADDRESS_RE.test(address)) {
@@ -732,10 +698,11 @@ async function reportRoute(
   const full = url.searchParams.get("full") === "1";
   const cached = cacheGet(key);
   if (cached) {
-    sendReport(res, format, cached, true, full);
+    sendReport(res, format, cached, true, full, opts.example);
     return;
   }
 
+  if (!opts.skipLimit) {
   const limit = takeToken(clientIp(req));
   if (!limit.allowed) {
     fail(
@@ -752,13 +719,14 @@ async function reportRoute(
     );
     return;
   }
+  }
 
   let release: (() => void) | undefined;
   try {
     release = await gate.acquire();
     const run = await withTimeout(buildShadowReport(address), BUILD_TIMEOUT_MS);
-    cacheSet(key, run);
-    sendReport(res, format, run, false, full);
+    cacheSet(key, run, opts.cacheMs);
+    sendReport(res, format, run, false, full, opts.example);
   } catch (err) {
     const failure = classify(err);
     fail(res, format, failure.status, "Could not build the report", failure.message, {
@@ -787,7 +755,13 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 
   switch (url.pathname) {
     case "/":
-      send(res, 200, HTML_TYPE, homePage(), HTML_HEADERS);
+      await reportRoute(
+        req,
+        res,
+        new URL("/report?address=" + DEMO_ADDRESS, "http://localhost"),
+        "html",
+        { skipLimit: true, cacheMs: DEMO_CACHE_MS, example: true },
+      );
       return;
     case "/healthz":
       send(res, 200, JSON_TYPE, JSON.stringify({ ok: true }) + "\n");
@@ -806,7 +780,7 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
           res,
           404,
           HTML_TYPE,
-          page("Not found", '<h1>Not found</h1><p>This service serves /, /report, /api/shadow and /healthz.</p><p class="hint"><a href="/">Back to the form</a></p>'),
+          page("Not found", '<h1>Not found</h1><p>This service serves /, /report, /api/shadow and /healthz.</p><p class="hint"><a href="/">Back to the example</a></p>'),
           HTML_HEADERS,
         );
       }
@@ -851,6 +825,14 @@ function main(): void {
       "[shadowd] no key is present in this process" +
         (scrubbedEnv.length > 0 ? " — scrubbed key-shaped env vars: " + scrubbedEnv.join(", ") : ""),
     );
+    void buildShadowReport(DEMO_ADDRESS)
+      .then((run) => {
+        cacheSet(DEMO_ADDRESS.toLowerCase(), run, DEMO_CACHE_MS);
+        console.log("[shadowd] example report ready for " + DEMO_ADDRESS);
+      })
+      .catch((err: unknown) => {
+        console.error("[shadowd] example report failed: " + (err instanceof Error ? err.message : String(err)));
+      });
   });
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
