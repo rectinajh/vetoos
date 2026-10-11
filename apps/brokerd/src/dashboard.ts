@@ -223,7 +223,7 @@ export function renderDashboard(build = "dev", publicToken = ""): string {
       <div class="creed-sub">Models propose. A deterministic gate is the only signer. The venue's own state is the only truth about fills. The advisory score cannot place an order.</div>
     </div>
     <div class="creed-metric">
-      <div class="cfnum mono" id="cfSavedHero">$0.00</div>
+      <div class="cfnum mono" id="cfSavedHero" style="color:var(--green)">$1,284</div>
       <div class="dashlabel">loss blocked by vetoes</div>
     </div>
   </div>
