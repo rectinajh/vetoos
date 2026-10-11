@@ -135,7 +135,7 @@ export class FixtureAdapter extends HlAdapter {
     return this.fills.filter((f) => f.ts >= sinceMs).reduce((acc, f) => acc + f.closedPnl - f.fee, 0);
   }
 
-  override async getOpenOrders(_network: Network) {
+  override async getOpenOrders(_network: Network, _dex?: string | null) {
     return [];
   }
 

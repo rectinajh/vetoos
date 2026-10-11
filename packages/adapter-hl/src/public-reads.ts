@@ -126,7 +126,10 @@ export class PublicReader {
    * Account value plus open positions for one clearinghouse.
    * The main book is `dex` omitted; a builder dex such as "xyz" is its own book.
    */
-  async clearinghouse(user: string, dex?: string | null): Promise<{ equityUsd: number; positions: OpenPosition[] }> {
+  async clearinghouse(
+    user: string,
+    dex?: string | null,
+  ): Promise<{ equityUsd: number; withdrawableUsd: number; positions: OpenPosition[] }> {
     const state = await this.info<RawClearinghouse>({
       type: "clearinghouseState",
       user,
@@ -139,14 +142,38 @@ export class PublicReader {
       const size = Number(position.szi ?? 0);
       if (!Number.isFinite(size) || size === 0) continue;
       positions.push({
-        coin: position.coin,
+        coin: dex && !position.coin.includes(":") ? `${dex}:${position.coin}` : position.coin,
         size,
         entryPx: Number(position.entryPx ?? 0),
         unrealizedPnlUsd: Number(position.unrealizedPnl ?? 0),
         positionValueUsd: Number(position.positionValue ?? 0),
       });
     }
-    return { equityUsd: Number(state.marginSummary?.accountValue ?? 0), positions };
+    return {
+      equityUsd: Number(state.marginSummary?.accountValue ?? 0),
+      withdrawableUsd: Number(state.withdrawable ?? 0),
+      positions,
+    };
+  }
+
+  /** Resting orders on one clearinghouse. Empty dex is the main book. */
+  async openOrders(
+    user: string,
+    dex?: string | null,
+  ): Promise<{ coin: string; side: string; size: number; px: number; oid: number; ts: number }[]> {
+    const raw = await this.info<{ coin?: string; side?: string; sz?: string; limitPx?: string; oid?: number; timestamp?: number }[]>({
+      type: "openOrders",
+      user,
+      ...(dex ? { dex } : {}),
+    });
+    return (raw ?? []).map((order) => ({
+      coin: order.coin && dex && !order.coin.includes(":") ? `${dex}:${order.coin}` : String(order.coin ?? ""),
+      side: String(order.side ?? ""),
+      size: Number(order.sz ?? 0),
+      px: Number(order.limitPx ?? 0),
+      oid: Number(order.oid ?? 0),
+      ts: Number(order.timestamp ?? 0),
+    }));
   }
 
   /** szDecimals and maxLeverage per coin — needed to size and price honestly. */
@@ -186,6 +213,7 @@ export class PublicReader {
 
 interface RawClearinghouse {
   marginSummary?: { accountValue?: string };
+  withdrawable?: string;
   assetPositions?: {
     position?: {
       coin?: string;

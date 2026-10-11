@@ -305,12 +305,16 @@ export class HlAdapter {
     return pnl;
   }
 
-  /** Resting (open) orders for the account — anything here escaped the fill-or-kill path. */
+  /** Resting (open) orders for one clearinghouse. `dex` null is the main book. */
   async getOpenOrders(
     network: Network,
+    dex?: string | null,
   ): Promise<{ coin: string; side: string; size: number; px: number; oid: number; ts: number }[]> {
     const orders = await withBackoff(() =>
-      this.info(network).openOrders({ user: this.accountAddress() as `0x${string}` }),
+      this.info(network).openOrders({
+        user: this.accountAddress() as `0x${string}`,
+        ...(dex ? { dex } : {}),
+      }),
     );
     return orders.map((o) => ({
       coin: o.coin,

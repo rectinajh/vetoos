@@ -37,7 +37,7 @@ export function renderOpenApi(): Record<string, unknown> {
         get: { summary: "Gauge utilization + active alerts", responses: { "200": { description: "Risk object" } } },
       },
       "/v1/execution": {
-        get: { summary: "Write-network position detail + recent venue fills (30s cache)", responses: { "200": { description: "Execution object" } } },
+        get: { summary: "Every open position, resting order, and recent fill on the write network (30s cache)", responses: { "200": { description: "Execution object" } } },
       },
       "/v1/stats": {
         get: { summary: "Decision counters from today's audit log", responses: { "200": { description: "Stats object" } } },

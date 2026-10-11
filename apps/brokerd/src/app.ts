@@ -10,7 +10,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { verifyMessage } from "viem";
-import type { HlAdapter } from "@vetoos/adapter-hl";
+import { parseMarket, type HlAdapter } from "@vetoos/adapter-hl";
+import { PublicReader } from "@vetoos/adapter-hl/public-reads";
 import { readAuditFile, verifyChain, type AuditEvent, type AuditLog } from "@vetoos/audit";
 import type { LoadedPolicy } from "@vetoos/risk";
 import { RiskBroker, READ_NETWORK, WRITE_NETWORK } from "@vetoos/demo-cli/broker";
@@ -248,6 +249,147 @@ function riskCounters(ctx: Context, account: { equityUsd: number; availableMargi
  * baseline, venue-sourced daily PnL refresh, and a resting-order sweep.
  * Anything resting escaped the IOC fill-or-kill path and is audited.
  */
+/** Main book plus every builder dex the broker is configured to trade. */
+function venueDexes(ctx: Context): (string | null)[] {
+  const dexes = new Set<string | null>([null]);
+  for (const market of [ctx.tradeMarket, ctx.policy.policy.default_market]) {
+    try {
+      dexes.add(parseMarket(market).dex);
+    } catch {
+      // a bad market string must not hide the books we can still read
+    }
+  }
+  return [...dexes];
+}
+
+/** Every non-zero position on those books, with entry and unrealized PnL. */
+async function venuePositions(ctx: Context) {
+  const out = new Map<
+    string,
+    { coin: string; size: number; entryPx: number; positionValue: number; unrealizedPnl: number; leverage: number }
+  >();
+  for (const dex of venueDexes(ctx)) {
+    const state = await ctx.adapter.getAccountState(WRITE_NETWORK, dex).catch(() => null);
+    if (!state) continue;
+    for (const [raw, size] of state.positions) {
+      if (!size) continue;
+      const coin = dex && !raw.includes(":") ? `${dex}:${raw}` : raw;
+      if (out.has(coin)) continue;
+      const detail = await ctx.adapter.getPositionDetail(coin, WRITE_NETWORK).catch(() => null);
+      out.set(coin, {
+        coin,
+        size: detail?.size ?? size,
+        entryPx: detail?.entryPx ?? 0,
+        positionValue: detail?.positionValue ?? 0,
+        unrealizedPnl: detail?.unrealizedPnl ?? 0,
+        leverage: detail?.leverage ?? 0,
+      });
+    }
+  }
+  return [...out.values()];
+}
+
+type ShownPosition = {
+  coin: string;
+  size: number;
+  entryPx: number;
+  positionValue: number;
+  unrealizedPnl: number;
+  leverage: number;
+};
+type ShownOrder = { coin: string; side: string; size: number; px: number; oid: number; ts: number };
+type ShownFill = { ts: number; coin: string; side: string; size: number; px: number; oid: number };
+type PublicBook = {
+  equityUsd: number;
+  availableMarginUsd: number;
+  positions: ShownPosition[];
+  orders: ShownOrder[];
+  fills: ShownFill[];
+};
+
+let publicBookCache: { key: string; at: number; data: PublicBook } | null = null;
+
+/**
+ * The offline console does not trade. Its venue panel still has to show the
+ * account that does: a public testnet read, no key, cached so the 2s poll
+ * does not hammer the venue.
+ */
+async function publicTestnetBook(ctx: Context): Promise<PublicBook | null> {
+  if (!ctx.options.offline) return null;
+  const address = ctx.config.accountAddress;
+  if (!address) return null;
+  const now = Date.now();
+  if (publicBookCache && publicBookCache.key === address && now - publicBookCache.at < 8_000) {
+    return publicBookCache.data;
+  }
+  const reader = new PublicReader("testnet");
+  const dexes = new Set<string | null>(venueDexes(ctx));
+  dexes.add("xyz");
+  let equityUsd = 0;
+  let availableMarginUsd = 0;
+  let sawBook = false;
+  const positions: ShownPosition[] = [];
+  const seen = new Set<string>();
+  const orders: ShownOrder[] = [];
+  const seenOid = new Set<number>();
+  for (const dex of dexes) {
+    const book = await reader.clearinghouse(address, dex).catch(() => null);
+    if (book) {
+      sawBook = true;
+      equityUsd += book.equityUsd;
+      availableMarginUsd += book.withdrawableUsd;
+      for (const position of book.positions) {
+        if (seen.has(position.coin)) continue;
+        seen.add(position.coin);
+        positions.push({
+          coin: position.coin,
+          size: position.size,
+          entryPx: position.entryPx,
+          positionValue: position.positionValueUsd,
+          unrealizedPnl: position.unrealizedPnlUsd,
+          leverage: 0,
+        });
+      }
+    }
+    const resting = await reader.openOrders(address, dex).catch(() => []);
+    for (const order of resting) {
+      if (seenOid.has(order.oid)) continue;
+      seenOid.add(order.oid);
+      orders.push(order);
+    }
+  }
+  if (!sawBook) return null;
+  positions.sort((a, b) => Math.abs(b.positionValue) - Math.abs(a.positionValue));
+  const fills = (await reader.getUserFills(address, 40).catch(() => []))
+    .slice(-20)
+    .reverse()
+    .map((fill) => ({
+      ts: fill.time,
+      coin: fill.coin,
+      side: fill.side === "buy" ? "B" : "A",
+      size: fill.sz,
+      px: fill.px,
+      oid: fill.oid,
+    }));
+  const data = { equityUsd, availableMarginUsd, positions, orders, fills };
+  publicBookCache = { key: address, at: now, data };
+  return data;
+}
+
+/** Resting orders across the same books. Same oid is one order. */
+async function venueOrders(ctx: Context) {
+  const out = new Map<number, { coin: string; side: string; size: number; px: number; oid: number; ts: number }>();
+  for (const dex of venueDexes(ctx)) {
+    const orders = await ctx.adapter.getOpenOrders(WRITE_NETWORK, dex).catch(() => []);
+    for (const order of orders) {
+      if (out.has(order.oid)) continue;
+      const coin = dex && order.coin && !String(order.coin).includes(":") ? `${dex}:${order.coin}` : order.coin;
+      out.set(order.oid, { ...order, coin });
+    }
+  }
+  return [...out.values()];
+}
+
 export async function reconcileTick(ctx: Context): Promise<void> {
   if (!ctx.broker.status()["baseline"]) {
     await ctx.broker.setBaseline(ctx.tradeMarket);
@@ -256,7 +398,7 @@ export async function reconcileTick(ctx: Context): Promise<void> {
   await ctx.broker.refreshDailyPnl(true).catch(() => undefined);
   let openOrders = 0;
   try {
-    const orders = await ctx.adapter.getOpenOrders(WRITE_NETWORK);
+    const orders = await venueOrders(ctx);
     openOrders = orders.length;
     if (orders.length > 0) {
       ctx.audit.record("error", {
@@ -320,6 +462,19 @@ export async function route(ctx: Context, req: IncomingMessage, res: ServerRespo
     return;
   }
   if (method === "GET" && path === "/v1/account") {
+    const book = await publicTestnetBook(ctx).catch(() => null);
+    if (book) {
+      json(res, 200, {
+        network: "testnet",
+        tradeMarket: ctx.tradeMarket,
+        equityUsd: book.equityUsd,
+        availableMarginUsd: book.availableMarginUsd,
+        positionSize: book.positions.find((p) => p.coin === ctx.tradeMarket)?.size ?? 0,
+        positions: Object.fromEntries(book.positions.map((p) => [p.coin, p.size])),
+        source: "testnet-public",
+      });
+      return;
+    }
     json(res, 200, await liveAccount(ctx));
     return;
   }
@@ -400,16 +555,33 @@ export async function route(ctx: Context, req: IncomingMessage, res: ServerRespo
     return;
   }
   if (method === "GET" && path === "/v1/execution") {
+    const book = await publicTestnetBook(ctx).catch(() => null);
+    if (book) {
+      const position = book.positions.find((p) => p.coin === ctx.tradeMarket) ?? book.positions[0] ?? null;
+      json(res, 200, {
+        market: ctx.tradeMarket,
+        network: "testnet",
+        position,
+        positions: book.positions,
+        orders: book.orders,
+        fills: book.fills,
+        source: "testnet-public",
+        at: new Date().toISOString(),
+      });
+      return;
+    }
     const c = ctx.caches.execution;
     if (c && Date.now() - c.at < TTL.execution) {
       json(res, 200, c.data);
       return;
     }
-    const [position, fills] = await Promise.all([
-      ctx.adapter.getPositionDetail(ctx.tradeMarket, WRITE_NETWORK).catch(() => null),
-      ctx.adapter.getRecentFills(WRITE_NETWORK, 6).catch(() => []),
+    const [positions, orders, fills] = await Promise.all([
+      venuePositions(ctx),
+      venueOrders(ctx),
+      ctx.adapter.getRecentFills(WRITE_NETWORK, 50).catch(() => []),
     ]);
-    const data = { market: ctx.tradeMarket, network: WRITE_NETWORK, position, fills, at: new Date().toISOString() };
+    const position = positions.find((p) => p.coin === ctx.tradeMarket) ?? positions[0] ?? null;
+    const data = { market: ctx.tradeMarket, network: WRITE_NETWORK, position, positions, orders, fills, at: new Date().toISOString() };
     ctx.caches.execution = { at: Date.now(), data };
     json(res, 200, data);
     return;

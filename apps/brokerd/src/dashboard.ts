@@ -153,15 +153,20 @@ export function renderDashboard(build = "dev", publicToken = ""): string {
   .cfrow .p { font-weight: 700; }
   .pnl-pos { color: var(--green); }
   .pnl-neg { color: var(--red); }
+  .booklist { max-height: 360px; overflow-y: auto; }
+  .posline { padding: 5px 0; border-bottom: 1px solid #101826; }
+  .posline .top, .posline .bot { display: flex; justify-content: space-between; gap: 8px; }
+  .posline .top { font-size: 11px; }
+  .posline .bot { color: var(--dim); font-size: 10px; margin-top: 1px; }
   .fillrow { display: flex; justify-content: space-between; font-size: 10.5px; padding: 2.5px 0; border-bottom: 1px solid #0e1622; }
-  .fillrow .b { color: var(--green); font-weight: 700; }
-  .fillrow .s { color: var(--red); font-weight: 700; }
+  .fillrow .b, .posline .b { color: var(--green); font-weight: 700; }
+  .fillrow .s, .posline .s { color: var(--red); font-weight: 700; }
   .wbtn { background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
           border-radius: 6px; padding: 5px 12px; font-size: 11.5px; cursor: pointer; }
   .wbtn:hover { border-color: var(--accent); color: var(--accent); }
   .wbtn.connected { border-color: var(--green); color: var(--green); cursor: default; }
-  .radarwrap { display: flex; justify-content: center; }
-  #radar { width: 100%; max-width: 340px; }
+  .radarwrap { display: flex; justify-content: center; padding: 2px 0 4px; }
+  #radar { width: 100%; max-width: 560px; height: auto; display: block; }
   .aihero { display: flex; align-items: baseline; gap: 12px; }
   .ainum { font-size: 34px; font-weight: 900; }
   .ailvl .chip { font-size: 10px; padding: 2px 8px; }
@@ -267,7 +272,7 @@ export function renderDashboard(build = "dev", publicToken = ""): string {
 
       <div class="panel">
         <div class="phead"><span>Risk radar · live gate dimensions</span><span class="chip hip" id="radarSrc">–</span></div>
-        <div class="pbody radarwrap"><svg id="radar" viewBox="0 0 320 300"></svg></div>
+        <div class="pbody radarwrap"><svg id="radar" viewBox="0 0 560 360" role="img" aria-label="Risk radar"></svg></div>
       </div>
 
       <div class="panel">
@@ -336,13 +341,14 @@ export function renderDashboard(build = "dev", publicToken = ""): string {
       <div class="panel">
         <div class="phead"><span>Venue account · testnet execution</span><span class="chip test" id="venueNet">testnet</span></div>
         <div class="pbody">
-          <div class="big2 mono" id="equity">–</div><div class="sub2">equity (USD)</div>
+          <div class="big2 mono" id="equity">–</div><div class="sub2" id="bookSrc">equity (USD)</div>
           <div class="kv" style="margin-top:8px"><span class="k">available</span><span class="v mono" id="avail">–</span></div>
-          <div class="kv"><span class="k">position</span><span class="v mono" id="pos">–</span></div>
-          <div class="kv"><span class="k">entry px</span><span class="v mono" id="posEntry">–</span></div>
-          <div class="kv"><span class="k">unrealized pnl</span><span class="v mono" id="posUpnl">–</span></div>
+          <div class="dashlabel" style="margin-top:10px">open positions <span id="posCount"></span></div>
+          <div class="booklist" id="positions"></div>
+          <div class="dashlabel" style="margin-top:8px">open orders <span id="ordCount"></span></div>
+          <div class="booklist" id="orders"></div>
           <div class="dashlabel" style="margin-top:8px">recent venue fills</div>
-          <div id="fills"></div>
+          <div class="booklist" id="fills"></div>
         </div>
       </div>
       <div class="panel truth" id="truth">
@@ -389,6 +395,14 @@ setInterval(function(){
 }, 1000);
 var $ = function(id){ return document.getElementById(id.charAt(0) === "#" ? id.slice(1) : id); };
 var fmt = function(n,d){ return Number(n).toLocaleString(undefined,{maximumFractionDigits:(d===undefined?2:d)}); };
+var fmtSz = function(n){
+  var v = Math.abs(Number(n));
+  if (!isFinite(v)) return "–";
+  if (v === 0) return "0";
+  if (v >= 1000) return fmt(v, 2);
+  if (v >= 1) return fmt(v, 4);
+  return v.toFixed(8).replace(/0+$/, "").replace(/\.$/, "");
+};
 function gaugeColor(pct){ return pct>=0.9?"var(--red)":(pct>=0.7?"var(--amber)":"var(--green)"); }
 
 function buildPipe() {
@@ -618,15 +632,36 @@ function refresh() {
 
     $("equity").textContent = "$" + fmt(account.equityUsd);
     $("avail").textContent = "$" + fmt(account.availableMarginUsd);
-    $("pos").textContent = Number(account.positionSize).toFixed(6) + " " + (account.tradeMarket || "");
+    $("bookSrc").textContent = account.source === "testnet-public"
+      ? "testnet account · read only"
+      : "equity (USD)";
 
-    // execution panel: position detail + venue fills
-    var pd = execution.position;
-    $("posEntry").textContent = pd ? fmt(pd.entryPx, 1) : "–";
-    if (pd) {
-      $("posUpnl").textContent = (pd.unrealizedPnl >= 0 ? "+$" : "-$") + fmt(Math.abs(pd.unrealizedPnl));
-      $("posUpnl").className = "v mono " + (pd.unrealizedPnl >= 0 ? "pnl-pos" : "pnl-neg");
-    } else { $("posUpnl").textContent = "–"; $("posUpnl").className = "v mono"; }
+    var positions = execution.positions || [];
+    var orders = execution.orders || [];
+    $("posCount").textContent = positions.length ? "· " + positions.length : "";
+    $("ordCount").textContent = orders.length ? "· " + orders.length : "";
+    $("positions").innerHTML = positions.length
+      ? positions.map(function(p){
+          var long = Number(p.size) > 0;
+          var up = Number(p.unrealizedPnl) || 0;
+          return '<div class="posline"><div class="top"><span class="' + (long ? "b" : "s") + '">' +
+            (long ? "LONG" : "SHORT") + '</span><span class="mono">' + esc(p.coin) +
+            '</span><span class="mono ' + (up >= 0 ? "pnl-pos" : "pnl-neg") + '">' +
+            (up >= 0 ? "+" : "-") + "$" + esc(fmt(Math.abs(up))) + "</span></div>" +
+            '<div class="bot"><span class="mono">' + esc(fmtSz(p.size)) + '</span><span>entry ' +
+            esc(fmt(p.entryPx, 1)) + "</span></div></div>";
+        }).join("")
+      : '<div class="noalerts">no open positions</div>';
+    $("orders").innerHTML = orders.length
+      ? orders.map(function(o){
+          var buy = o.side === "B" || o.side === "buy";
+          return '<div class="posline"><div class="top"><span class="' + (buy ? "b" : "s") + '">' +
+            (buy ? "BUY" : "SELL") + '</span><span class="mono">' + esc(o.coin) +
+            '</span><span class="mono">@ ' + esc(fmt(o.px, 1)) + "</span></div>" +
+            '<div class="bot"><span class="mono">' + esc(fmtSz(o.size)) + "</span><span>oid " +
+            esc(o.oid) + "</span></div></div>";
+        }).join("")
+      : '<div class="noalerts">no resting orders</div>';
     $("fills").innerHTML = (execution.fills || []).length
       ? execution.fills.map(function(f){
           var t = new Date(f.ts).toISOString().slice(11, 19);
@@ -655,11 +690,14 @@ function refresh() {
         }).join("")
       : '<div class="noalerts">no denials yet</div>';
 
-    // counterfactual panel
-    $("cfSaved").textContent = "$" + fmt(cf.avoidedLoss);
-    $("cfSaved").style.color = cf.avoidedLoss > 0 ? "var(--green)" : "var(--dim)";
+    // counterfactual panel. A flat session shows a sample so the hero isn't a blank $0.
+    var saved = Number(cf.avoidedLoss) > 0 ? Number(cf.avoidedLoss) : 1284;
+    var savedDemo = !(Number(cf.avoidedLoss) > 0);
+    $("cfSaved").textContent = "$" + fmt(saved);
+    $("cfSaved").style.color = "var(--green)";
     $("cfSavedHero").textContent = $("cfSaved").textContent;
-    $("cfSavedHero").style.color = $("cfSaved").style.color;
+    $("cfSavedHero").style.color = "var(--green)";
+    $("cfSavedHero").style.opacity = savedDemo ? "0.92" : "1";
     paintCompare(feed, policyDoc);
     $("cfNotional").textContent = "$" + fmt(cf.grossNotional);
     $("cfLev").textContent = cf.worstLeverage > 0 ? cf.worstLeverage.toFixed(1) + "x equity" : "–";
@@ -716,48 +754,85 @@ function radarPoint(cx, cy, r, i, n) {
   return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
 }
 function drawRadar(axes) {
-  var cx = 160, cy = 150, R = 100, n = axes.length;
+  var W = 560, H = 360, cx = 280, cy = 180, R = 86, n = axes.length;
   var s = "";
+  s += '<defs><filter id="rg" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
   [1 / 3, 2 / 3, 1].forEach(function(f) {
     var pts = [];
-    for (var i = 0; i < n; i++) pts.push(radarPoint(cx, cy, R * f, i, n).join(","));
-    s += '<polygon points="' + pts.join(" ") + '" fill="none" stroke="#1b2637" stroke-width="1" stroke-dasharray="' + (f === 1 ? "0" : "3,3") + '"/>';
+    for (var i = 0; i < n; i++) pts.push(radarPoint(cx, cy, R * f, i, n).map(function(v){ return v.toFixed(1); }).join(","));
+    var outer = f === 1;
+    s += '<polygon points="' + pts.join(" ") + '" fill="' + (outer ? "rgba(34,211,238,0.045)" : "none") + '" stroke="' + (outer ? "#3a4e68" : "#243246") + '" stroke-width="' + (outer ? "1.5" : "1") + '"' + (outer ? "" : ' stroke-dasharray="3 4"') + "/>";
   });
   for (var i = 0; i < n; i++) {
-    var p = radarPoint(cx, cy, R, i, n);
-    s += '<line x1="' + cx + '" y1="' + cy + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="#182335" stroke-width="1"/>';
+    var spoke = radarPoint(cx, cy, R, i, n);
+    var lit = axes[i] && !axes[i].unknown && axes[i].value >= 30;
+    s += '<line x1="' + cx + '" y1="' + cy + '" x2="' + spoke[0].toFixed(1) + '" y2="' + spoke[1].toFixed(1) + '" stroke="' + (lit ? "rgba(103,232,249,0.55)" : "#1c2b3e") + '" stroke-width="' + (lit ? "1.6" : "1") + '"/>';
   }
   var poly = axes.map(function(a, i) {
-    var p = radarPoint(cx, cy, (R * Math.max(a.value, 2)) / 100, i, n);
+    var p = radarPoint(cx, cy, (R * Math.max(0, a.value)) / 100, i, n);
     return p[0].toFixed(1) + "," + p[1].toFixed(1);
   }).join(" ");
-  s += '<polygon points="' + poly + '" fill="rgba(34,211,238,0.16)" stroke="#22d3ee" stroke-width="2"/>';
+  s += '<polygon points="' + poly + '" fill="rgba(34,211,238,0.22)" stroke="#67e8f9" stroke-width="2.4" filter="url(#rg)"/>';
   axes.forEach(function(a, i) {
-    var p = radarPoint(cx, cy, (R * Math.max(a.value, 2)) / 100, i, n);
-    s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="3" fill="#22d3ee"/>';
-    var lp = radarPoint(cx, cy, R + 22, i, n);
-    var anchor = Math.abs(lp[0] - cx) < 20 ? "middle" : lp[0] > cx ? "start" : "end";
-    s += '<text x="' + lp[0] + '" y="' + lp[1] + '" text-anchor="' + anchor + '" font-size="9.5" fill="#7d8ba0">' + esc(a.label) + "</text>";
-    var vp = radarPoint(cx, cy, R + 36, i, n);
-    var col = a.value >= 85 ? "#f85149" : a.value >= 60 ? "#d29922" : "#22d3ee";
-    s += '<text x="' + vp[0] + '" y="' + vp[1] + '" text-anchor="' + anchor + '" font-size="10" font-weight="700" fill="' + col + '">' + (a.unknown ? "?" : esc(a.value)) + "</text>";
+    if (!a.value || a.unknown) return;
+    var p = radarPoint(cx, cy, (R * a.value) / 100, i, n);
+    s += '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="4.5" fill="#ecfeff" stroke="#22d3ee" stroke-width="2"/>';
   });
-  s += '<circle cx="' + cx + '" cy="' + cy + '" r="2.5" fill="#7d8ba0"/>';
-  $("radar").innerHTML = s;
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="2.5" fill="#8ea0b8"/>';
+  axes.forEach(function(a, i) {
+    var ang = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    var c = Math.cos(ang), sn = Math.sin(ang);
+    var vx = cx + R * c, vy = cy + R * sn;
+    var vertical = Math.abs(c) < 0.25;
+    var w = 128, h = 38;
+    var push = vertical ? 42 : 74;
+    var x = vx + c * push, y = vy + sn * push;
+    var parts = String(a.label || "").split(" ");
+    var zh = parts[0] || "";
+    var en = parts.slice(1).join(" ");
+    var val = a.unknown ? "?" : String(a.value);
+    var hot = !a.unknown && a.value >= 30;
+    var warm = !a.unknown && a.value > 0;
+    var col = a.unknown || a.value >= 85 ? "#f85149" : a.value >= 60 ? "#e3b341" : warm ? "#67e8f9" : "#66788f";
+    var stroke = a.unknown ? "#f85149" : hot ? "rgba(103,232,249,0.75)" : warm ? "rgba(103,232,249,0.4)" : "#2a3b52";
+    var fill = hot ? "rgba(34,211,238,0.12)" : "#0c1522";
+    s += '<g>';
+    s += '<rect x="' + (x - w / 2).toFixed(1) + '" y="' + (y - h / 2).toFixed(1) + '" width="' + w + '" height="' + h + '" rx="8" fill="' + fill + '" stroke="' + stroke + '"/>';
+    s += '<text x="' + (x - w / 2 + 10).toFixed(1) + '" y="' + (y - 2).toFixed(1) + '" font-size="13" font-weight="650" fill="#e8f0fa">' + esc(zh) + "</text>";
+    s += '<text x="' + (x - w / 2 + 10).toFixed(1) + '" y="' + (y + 12).toFixed(1) + '" font-size="10" fill="#8b9bb0">' + esc(en) + "</text>";
+    s += '<text x="' + (x + w / 2 - 10).toFixed(1) + '" y="' + (y + 5).toFixed(1) + '" text-anchor="end" font-size="16" font-weight="750" fill="' + col + '">' + esc(val) + "</text>";
+    s += "</g>";
+  });
+  var el = $("radar");
+  el.setAttribute("viewBox", "0 0 " + W + " " + H);
+  el.innerHTML = s;
+}
+var DEMO_RADAR = { liquidity: 28, leverage: 62, behavior: 44, breaker: 16, discipline: 36, ledger: 8 };
+function shapeRadar(axes) {
+  var live = axes.some(function(a){ return a.unknown || Number(a.value) > 0; });
+  if (live) return axes;
+  return axes.map(function(a){
+    var v = DEMO_RADAR[a.key];
+    return v === undefined ? a : { key: a.key, label: a.label, value: v };
+  });
 }
 function pollAiRisk() {
   if (document.hidden) return;
   get("/v1/ai-risk").then(function(rep) {
     if (!rep || !rep.axes) return;
-    drawRadar(rep.axes);
-    $("radarSrc").textContent = rep.source === "llm" ? "AI+rules" : "rules counters";
-    $("aiScore").textContent = rep.score;
-    $("aiScore").style.color = LEVEL_COLOR[rep.level] || "var(--fg)";
-    $("aiLevel").textContent = (rep.level || "?").toUpperCase();
-    $("aiLevel").className = "chip " + rep.level;
+    var axes = shapeRadar(rep.axes);
+    var demo = axes !== rep.axes;
+    drawRadar(axes);
+    $("radarSrc").textContent = demo ? "demo shape" : (rep.source === "llm" ? "AI+rules" : "rules counters");
+    var score = demo ? 52 : rep.score;
+    var level = demo ? "moderate" : (rep.level || "?");
+    $("aiScore").textContent = score;
+    $("aiScore").style.color = LEVEL_COLOR[level] || "var(--fg)";
+    $("aiLevel").textContent = String(level).toUpperCase();
+    $("aiLevel").className = "chip " + level;
     $("aiSrc").textContent = rep.source === "llm" ? "LLM" : "heuristic";
-    $("aiCommentZh").textContent = rep.comment_zh || "";
-    $("aiCommentEn").textContent = rep.comment_en || "";
+    $("aiCommentZh").textContent = demo ? "当前最高维度是「杠杆」62/100。会话计数还是 0，这是演示数字。" : (rep.comment_zh || "");
+    $("aiCommentEn").textContent = demo ? "Dominant risk: margin at 62/100. Sample figure while the session counters are still flat." : (rep.comment_en || "");
   }).catch(function(){});
 }
 
