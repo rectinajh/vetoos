@@ -1,0 +1,22 @@
+# The build context must never contain a dependency tree, a repository history,
+# a log, or a secret: the image installs its own modules and reads no .env.
+node_modules
+**/node_modules
+.pnpm-store
+**/.pnpm-store
+dist
+**/dist
+build
+**/build
+.git
+.gitignore
+.github
+logs
+**/*.log
+.env
+.env.*
+**/.env
+**/.env.*
+.DS_Store
+*.tsbuildinfo
+coverage

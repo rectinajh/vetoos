@@ -97,6 +97,15 @@ importers:
         specifier: workspace:*
         version: link:../../packages/intent
 
+  apps/shadowd:
+    dependencies:
+      '@vetoos/demo-cli':
+        specifier: workspace:*
+        version: link:../demo-cli
+      '@vetoos/replay':
+        specifier: workspace:*
+        version: link:../../packages/replay
+
   packages/adapter-hl:
     dependencies:
       '@nktkas/hyperliquid':

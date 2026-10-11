@@ -1,0 +1,15 @@
+{
+  "name": "@vetoos/shadowd",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "VetoOS shadowd - the public, read-only shadow report service. Holds no keys and cannot trade.",
+  "main": "./src/server.ts",
+  "scripts": {
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@vetoos/demo-cli": "workspace:*",
+    "@vetoos/replay": "workspace:*"
+  }
+}
