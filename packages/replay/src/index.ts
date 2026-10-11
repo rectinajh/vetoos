@@ -390,7 +390,7 @@ export function shadowReplay(input: ShadowInput): ShadowReport {
   const blockedAttributedPnlUsd = blocked.reduce((a, e) => a + (e.attributedPnlUsd ?? 0), 0);
 
   const caveats = [
-    "The single-order notional cap applies to position-reducing orders as well, so this rulebook can refuse an exit that is larger than the cap. If the report shows a close being refused, treat that as a rulebook setting to review rather than a risk the gate removed.",
+    "A verified position-reducing order is exempt from the single-order notional cap, so a large exit is never refused by that rule — a capped exit turns a bad position into a trapped one. The exemption uses the verified position, not the claim: a 'reduce-only' order that would actually open or add exposure keeps the full check.",
     "Counterfactual, not a simulation: each order is judged against your real prior activity, and orders the gate would have refused are not fed back as refusals. It does not model how you would have reacted to being refused.",
     "The venue returns at most 2000 fills per call, so this window is as far back as one request reaches. A high-frequency account gets a short window; a quiet one gets months.",
     "Depth rule not evaluated: Hyperliquid does not publish historical order books, so the book-depth guard is neutralised rather than guessed.",

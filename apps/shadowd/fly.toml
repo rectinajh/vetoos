@@ -1,0 +1,35 @@
+# fly.io deployment for the read-only shadow report service.
+#
+#   fly launch --no-deploy --copy-config --name <your-app-name>
+#   fly deploy
+#
+# The machine is allowed to suspend when idle and wakes on the next request, so
+# a hackathon-scale trickle of visitors costs approximately nothing. There is no
+# volume, no database and no secret: the service reads public Hyperliquid data
+# and holds no key, which is exactly why it is safe to expose.
+
+app = "vetoos-shadow"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "apps/shadowd/Dockerfile"
+
+[env]
+  PORT = "4477"
+  HOST = "0.0.0.0"
+
+[http_service]
+  internal_port = 4477
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 40
+    soft_limit = 20
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

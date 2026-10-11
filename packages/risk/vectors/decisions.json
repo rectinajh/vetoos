@@ -18,11 +18,11 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [],
         "intent": {
-          "id": "777132ac-5bdd-416b-8099-cac7379a05d7",
+          "id": "d4cd1a7c-b8eb-4384-94b7-8ccc439cba95",
           "market": "xyz:XYZ100",
           "order_type": "market",
           "reduce_only": false,
@@ -61,7 +61,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -71,7 +71,7 @@
         "decision": "allow",
         "code": "ALLOW"
       },
-      "verdictHash": "96a1078413df09a5bdda1be23d7aaf074f29c15cf7550d4b7cf7d1528ec1ecb1",
+      "verdictHash": "a9aea68d629747545af5d6683e8cc1c5a8d8b525a4a6416113e120623907946a",
       "input": {
         "account": {
           "availableMarginUsd": 1000,
@@ -80,7 +80,7 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [
           {
@@ -115,7 +115,7 @@
           }
         ],
         "intent": {
-          "id": "635e6a0c-cb2e-4c48-9f04-66b9f38248de",
+          "id": "b2dc37b9-6343-43de-a1ce-1cf8a8141d14",
           "market": "xyz:XYZ100",
           "order_type": "market",
           "reduce_only": true,
@@ -154,7 +154,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -173,11 +173,11 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [],
         "intent": {
-          "id": "0c1a45d9-cdfa-4934-8ef3-655d0cbb5b01",
+          "id": "98f178ab-fa89-4ebb-96db-a53aec9a7b23",
           "market": "xyz:XYZ100",
           "order_type": "market",
           "reduce_only": false,
@@ -216,7 +216,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -235,11 +235,11 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 100
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [],
         "intent": {
-          "id": "84218915-bc30-4170-9adf-03a3842e45cc",
+          "id": "2fc871d1-4f7b-48bd-a41a-a27e33b9cc44",
           "market": "xyz:XYZ100",
           "order_type": "market",
           "reduce_only": false,
@@ -278,7 +278,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -297,11 +297,11 @@
           "dailyRealizedPnlUsd": -250,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [],
         "intent": {
-          "id": "843d53eb-1d83-4647-b212-fa5e026227eb",
+          "id": "d7fd63d3-eb17-4514-95d7-b427a10857c3",
           "market": "xyz:XYZ100",
           "order_type": "market",
           "reduce_only": false,
@@ -340,7 +340,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -359,7 +359,7 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [
           {
@@ -382,7 +382,7 @@
           }
         ],
         "intent": {
-          "id": "d1b5b104-dfd9-4025-9b36-9d9c3cd4900f",
+          "id": "be56b19f-ca36-47f5-9eb7-406b8a19c4bb",
           "market": "xyz:XYZ100",
           "order_type": "market",
           "reduce_only": false,
@@ -421,7 +421,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -440,12 +440,12 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "freezeReason": "reconcile mismatch",
         "frozen": true,
         "history": [],
         "intent": {
-          "id": "13714c53-2ddb-4a29-bb1a-3d5b5f7196df",
+          "id": "ef81ea46-a00e-4b73-b420-633d9ec79c87",
           "market": "xyz:XYZ100",
           "order_type": "market",
           "reduce_only": false,
@@ -484,7 +484,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -503,11 +503,11 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [],
         "intent": {
-          "id": "8b04b029-d6eb-4500-b521-b0a083e58ca1",
+          "id": "76ce2f0c-11a0-4b17-b8fd-e299d4f92995",
           "market": "xyz:XYZ100",
           "order_type": "market",
           "reduce_only": false,
@@ -546,7 +546,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -565,11 +565,11 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [],
         "intent": {
-          "id": "e0d76ed7-33ab-49f3-8b67-f9817ba3d310",
+          "id": "fc40d3ec-c816-4d0a-acab-283b5c388238",
           "market": "xyz:XYZ100",
           "order_type": "market",
           "reduce_only": false,
@@ -608,7 +608,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -627,11 +627,11 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [],
         "intent": {
-          "id": "1009b044-e1b0-4f0e-ae05-34e26d7c3632",
+          "id": "f0705d92-8294-4a0c-a3f9-0477593e5bf9",
           "market": "NOTLISTED",
           "order_type": "market",
           "reduce_only": false,
@@ -670,7 +670,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -689,7 +689,7 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [
           {
@@ -700,7 +700,7 @@
           }
         ],
         "intent": {
-          "id": "db58ae9c-bd3e-4a16-b031-ab585b26edeb",
+          "id": "45baf37a-4beb-447f-9f46-7feaf83ec34e",
           "market": "xyz:XYZ100",
           "order_type": "market",
           "reduce_only": false,
@@ -739,7 +739,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     },
@@ -758,11 +758,11 @@
           "dailyRealizedPnlUsd": 0,
           "equityUsd": 1000
         },
-        "engineVersion": "risk/1.0.0",
+        "engineVersion": "risk/1.1.0",
         "frozen": false,
         "history": [],
         "intent": {
-          "id": "102ed187-ce01-4e49-a280-7d033d35166f",
+          "id": "cf52f510-967d-4d44-aac0-191829892851",
           "limit_px": "20000",
           "market": "xyz:XYZ100",
           "order_type": "limit",
@@ -802,7 +802,7 @@
           "version": "0.1"
         },
         "policyBytesHash": "ca83d7f7a3d0fbaf6a2c9f3f8f537f1ff6e729dc391c4b52f0c5e25bee924bd9",
-        "rulesetHash": "9b1161b27a5b1a5147d23eb9be9671b950c8b7d442f82f03e433f3ed62f254c2",
+        "rulesetHash": "bab7abc7c4de289f8c2f1b58203d5e2f8b4c18dc0947730719dd92e7bd18d85d",
         "schema": "vetoos.decision/1"
       }
     }

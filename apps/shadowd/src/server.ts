@@ -587,17 +587,44 @@ type ShadowResponse = ShadowReport & {
   policy: ShadowRun["policy"];
   scaled: boolean;
   venueCalls: number;
+  /** Present and false only for ?full=1; otherwise says how much was cut. */
+  truncated: false | { episodes: number; blocked: number; note: string };
 };
 
-function sendReport(res: ServerResponse, format: Format, run: ShadowRun, fromCache: boolean): void {
+/** How many blocked episodes the default JSON payload carries. */
+export const JSON_EPISODE_LIMIT = 100;
+
+function sendReport(
+  res: ServerResponse,
+  format: Format,
+  run: ShadowRun,
+  fromCache: boolean,
+  full = false,
+): void {
   if (format === "json") {
-    // The report fields stay at the top level so a ShadowReport consumer needs no
-    // unwrapping, and the run metadata the CLI prints is attached alongside it.
+    // A full report over 2,000 fills is several megabytes, almost all of it
+    // per-episode rule traces that a caller reading a summary never touches.
+    // The default payload therefore keeps the aggregate answer complete and
+    // truncates the episode list, saying so in the body rather than silently
+    // returning a partial report. ?full=1 returns everything.
+    const episodes = full ? run.report.episodes : run.report.episodes.slice(0, JSON_EPISODE_LIMIT);
+    const blocked = full ? run.report.blocked : run.report.blocked.slice(0, JSON_EPISODE_LIMIT);
     const payload: ShadowResponse = {
+      // The report fields stay at the top level so a ShadowReport consumer needs
+      // no unwrapping, and the run metadata the CLI prints is attached beside it.
       ...run.report,
+      episodes,
+      blocked,
       policy: run.policy,
       scaled: run.scaled,
       venueCalls: run.venueCalls,
+      truncated: full
+        ? false
+        : {
+            episodes: run.report.episodes.length - episodes.length,
+            blocked: run.report.blocked.length - blocked.length,
+            note: "Summary, profile and caveats are complete. Add ?full=1 for every episode and trace.",
+          },
     };
     send(res, 200, JSON_TYPE, JSON.stringify(payload) + "\n");
     return;
@@ -630,9 +657,10 @@ async function reportRoute(
   }
 
   const key = address.toLowerCase();
+  const full = url.searchParams.get("full") === "1";
   const cached = cacheGet(key);
   if (cached) {
-    sendReport(res, format, cached, true);
+    sendReport(res, format, cached, true, full);
     return;
   }
 
@@ -658,7 +686,7 @@ async function reportRoute(
     release = await gate.acquire();
     const run = await withTimeout(buildShadowReport(address), BUILD_TIMEOUT_MS);
     cacheSet(key, run);
-    sendReport(res, format, run, false);
+    sendReport(res, format, run, false, full);
   } catch (err) {
     const failure = classify(err);
     fail(res, format, failure.status, "Could not build the report", failure.message, {

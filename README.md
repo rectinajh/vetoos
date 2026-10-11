@@ -43,10 +43,16 @@ flowchart LR
 1. **Propose** — strategies/AI emit a standard Intent IR; they hold no keys and
    cannot reach the exchange. Intents carrying policy-override fields are
    refused on sight.
-2. **Check** — eleven ordered rules (freeze, market data, allow-list, notional,
-   leverage, daily loss, cool-down, same-side adds/FOMO, rate limit, book depth,
-   margin), each leaving a `pass | fail | skip` trace step. Denials come with
-   plain-language, bilingual reasons.
+2. **Check** — eleven ordered rules (freeze, market data, oracle distance,
+   allow-list, notional, leverage, daily loss, cool-down, same-side adds/FOMO,
+   rate limit, book depth, margin), each leaving a `pass | fail | skip` trace
+   step. Denials come with plain-language, bilingual reasons.
+   A **verified position-reducing order is exempt** from the rules whose only
+   job is to bound what you can *open* (notional, leverage, same-side adds,
+   margin) — a capped exit turns a bad position into a trapped one. The
+   exemption keys off the position, not the claim: a `reduce_only` order that
+   would actually open or add exposure keeps the full check
+   (`reduce_only_effective` in the receipt says which one it was).
 3. **Reconcile** — fills are compared against the venue's real positions
    (0.5% or 1 lot tolerance) per order *and* every 60 s for the whole session.
    Mismatch ⇒ global freeze until a human resets.

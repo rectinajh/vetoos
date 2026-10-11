@@ -1,0 +1,20 @@
+# Render blueprint for the read-only shadow report service.
+#
+#   Render dashboard -> New -> Blueprint -> point at this repo
+#
+# The free plan spins the instance down when idle and wakes it on the next
+# request, so the first visitor after a quiet period waits a few seconds.
+# No secret is required: the service holds no key and cannot trade.
+
+services:
+  - type: web
+    name: vetoos-shadow
+    runtime: docker
+    dockerfilePath: ./apps/shadowd/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      # Render injects PORT itself; only the bind address needs overriding.
+      - key: HOST
+        value: 0.0.0.0

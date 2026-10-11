@@ -152,6 +152,35 @@ describe("evaluateIntent — policy rules", () => {
     expect(d.decision).toBe("allow");
     expect(d.snapshot["reduce_only_effective"]).toBe(true);
   });
+
+  it("a verified reduce-only EXIT is exempt from the notional cap", () => {
+    // Refusing an oversized exit is how a risk system turns a bad position into
+    // a trapped one: the cap exists to bound what you can OPEN.
+    const ctx = makeCtx();
+    ctx.account.equityUsd = 1_000_000;
+    ctx.account.currentPositionNotionalUsd = 500_000;
+    ctx.account.currentPositionSize = 10;
+    const d = evaluateIntent(makeIntent({ reduce_only: true, side: "sell", size: "10" }), policy, ctx);
+    expect(d.code).toBe("ALLOW");
+    expect(d.trace.find((t) => t.rule === "notional")).toMatchObject({
+      outcome: "skip",
+      detail: "reduce-only",
+    });
+  });
+
+  it("does NOT hand the notional waiver to a 'reduce-only' order that would add", () => {
+    // The waiver keys off the verified flag, not the claim.
+    const ctx = makeCtx();
+    ctx.account.equityUsd = 1_000_000;
+    ctx.account.currentPositionNotionalUsd = 500_000;
+    ctx.account.currentPositionSize = 10; // long
+    // 10.5 > the 10 held, so this "reduce-only" order would actually flip the
+    // position and open exposure — the waiver must not apply.
+    const d = evaluateIntent(makeIntent({ reduce_only: true, side: "buy", size: "10.5" }), policy, ctx);
+    expect(d.snapshot["reduce_only_effective"]).toBe(false);
+    expect(d.code).toBe("NOTIONAL_EXCEEDED");
+    expect(d.trace.find((t) => t.rule === "notional")?.outcome).toBe("fail");
+  });
 });
 
 describe("evaluateIntent — daily loss breaker", () => {
@@ -309,12 +338,15 @@ describe("evaluateIntent — evaluation order (first deny wins)", () => {
 });
 
 describe("evaluateIntent — trace (the explainable verdict)", () => {
-  it("allow: every rule passes, reduce-only skips leverage/margin", () => {
+  it("allow: every rule passes, reduce-only skips notional/leverage/same-side/margin", () => {
     const d = evaluateIntent(makeIntent({ reduce_only: true }), policy, makeCtx());
     expect(d.decision).toBe("allow");
     expect(d.trace.every((t) => t.outcome !== "fail")).toBe(true);
     const skipped = d.trace.filter((t) => t.outcome === "skip").map((t) => t.rule);
-    expect(skipped).toEqual(["oracle_distance", "leverage", "same_side_adds", "margin"]);
+    // A verified exit is exempt from every rule whose purpose is to bound what
+    // you can OPEN. The rules that still apply to an exit (freeze, market data,
+    // allow-list, daily loss, cool-down, rate, depth) are never skipped.
+    expect(skipped).toEqual(["oracle_distance", "notional", "leverage", "same_side_adds", "margin"]);
   });
 
   it("deny: trace stops exactly at the failing rule", () => {

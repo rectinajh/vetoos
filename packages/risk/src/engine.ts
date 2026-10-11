@@ -235,7 +235,16 @@ export function evaluateIntent(
   pass("allowed_market");
 
   // 2b. Policy: single-order notional cap.
-  if (notionalUsd > policy.max_order_notional_usd) {
+  //
+  // A VERIFIED reduce-only order cannot increase exposure, so the cap is
+  // skipped: refusing an exit is a bigger risk than the size of the exit.
+  // (A capped exit is how a risk system turns a bad position into a trapped
+  // one.) The waiver keys off the same verified `reduces` flag as the leverage
+  // and FOMO rules, so a "reduce-only" claim that would actually open or add
+  // keeps the full check — see reduce_only_effective in the snapshot.
+  if (reduces) {
+    skip("notional", "reduce-only");
+  } else if (notionalUsd > policy.max_order_notional_usd) {
     return fail(
       "NOTIONAL_EXCEEDED",
       "notional",
@@ -244,8 +253,9 @@ export function evaluateIntent(
       baseSnapshot,
       `$${notionalUsd.toFixed(2)} > $${policy.max_order_notional_usd}`,
     );
+  } else {
+    pass("notional", `$${notionalUsd.toFixed(2)} ≤ $${policy.max_order_notional_usd}`);
   }
-  pass("notional", `$${notionalUsd.toFixed(2)} ≤ $${policy.max_order_notional_usd}`);
 
   // 2c. Policy: leverage cap (skipped for verified reduce-only exits).
   if (reduces) {
