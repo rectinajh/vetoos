@@ -7,7 +7,7 @@
  * the engine's own trace, alerts derive from the same counters the rules use.
  */
 
-export function renderDashboard(build = "dev"): string {
+export function renderDashboard(build = "dev", publicToken = ""): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -365,8 +365,8 @@ export function renderDashboard(build = "dev"): string {
 <script>
 var RULES = ["freeze","market_data","oracle_distance","allowed_market","notional","leverage","daily_loss","cooldown","same_side_adds","rate_limit","book_depth","margin"];
 var RULE_LABEL = {freeze:"global freeze",market_data:"real market data",oracle_distance:"oracle distance",allowed_market:"allowed market",notional:"notional cap",leverage:"leverage cap",daily_loss:"daily-loss breaker",cooldown:"post-deny cool-down",same_side_adds:"FOMO same-side adds",rate_limit:"order frequency",book_depth:"book capacity",margin:"margin check"};
-var TOKEN = "";
-try { TOKEN = new URLSearchParams(location.search).get("token") || ""; } catch (e) {}
+var TOKEN = ${JSON.stringify(publicToken)};
+try { TOKEN = new URLSearchParams(location.search).get("token") || TOKEN; } catch (e) {}
 function postHeaders() {
   var h = { "content-type": "application/json" };
   if (TOKEN) h["x-vetoos-token"] = TOKEN;

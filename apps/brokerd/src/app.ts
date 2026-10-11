@@ -297,7 +297,7 @@ export async function route(ctx: Context, req: IncomingMessage, res: ServerRespo
 
   if (method === "GET" && path === "/") {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-    res.end(renderDashboard(ctx.options.build));
+    res.end(renderDashboard(ctx.options.build, ctx.options.publicToken ?? ""));
     return;
   }
   if (method === "GET" && path === "/openapi.json") {
